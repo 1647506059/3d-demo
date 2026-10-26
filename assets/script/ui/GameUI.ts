@@ -145,7 +145,7 @@ export class GameUI extends Component {
     }
     private _updateFire() {
         if (!this._fire) return;
-        const ready = this._state?.phase === 'aiming' && this._state.ammo > 0;
+        const ready = !!this._state && ['aiming', 'flying', 'settling'].includes(this._state.phase) && this._state.ammo > 0 && this._state.cleared < this._state.total;
         this._text('Fire', this._charging ? '松开发射' : ready ? '开 炮' : '等待');
         this._fire.getComponent(UIOpacity)!.opacity = ready ? 255 : 140;
     }

@@ -4,7 +4,7 @@ export const MAX_LEVEL = 1000;
 export const FINAL_IMPACT_VIEW_TIME = 4;
 export const FINAL_QUIET_TIME = 2.8;
 
-/** Allow the hit, falling bodies and debris to play before a modal or another shot. */
+/** Finish the impact presentation before a result or a return to idle; firing stays available during play. */
 export function canResolveShot(elapsed: number, quiet: number, pending: boolean, moving: boolean, terminal: boolean): boolean {
     if (pending || elapsed < (terminal ? FINAL_IMPACT_VIEW_TIME : 2.2) || quiet < (terminal ? FINAL_QUIET_TIME : 0.9)) return false;
     return !moving || elapsed >= 7;

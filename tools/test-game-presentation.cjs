@@ -20,11 +20,14 @@ const { chromium } = require(process.argv[3] ? path.resolve(process.argv[3]) : '
             const g = cc.director.getScene().getChildByName('Main').getComponent('GameManager');
             const c = g._camera.node.worldPosition, m = g._cannon.muzzlePosition, b = g._loaded.bounds;
             const dx = (b.min.x + b.max.x) / 2 - g._cannon.node.worldPosition.x, dz = (b.min.z + b.max.z) / 2 - g._cannon.node.worldPosition.z;
-            return { behind: ((c.x - m.x) * dx + (c.z - m.z) * dz) / Math.hypot(dx, dz), height: c.y, rotation: { ...g._camera.node.worldRotation }, orbit: !!g._camera.node.getComponent('DebugOrbitCamera') };
+            return { behind: ((c.x - m.x) * dx + (c.z - m.z) * dz) / Math.hypot(dx, dz), height: c.y,
+                muzzleTop: 1 - g._camera.worldToScreen(m).y / innerHeight,
+                rotation: { ...g._camera.node.worldRotation }, orbit: !!g._camera.node.getComponent('DebugOrbitCamera') };
         });
         await page.goto(process.argv[2], { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => window.cc?.director.getScene()?.getChildByName('Main')?.getComponent('GameManager')?.phase === 'aiming');
         const landscape = await camera(); assert.ok(landscape.behind < -3); assert.ok(landscape.height < 4); assert.equal(landscape.orbit, false);
+        assert.ok(landscape.muzzleTop > 0.7 && landscape.muzzleTop < 1, 'cannon stays in the bottom portion of the screen');
         await page.screenshot({ path: path.join(output, 'shoulder-landscape.png') });
         await page.mouse.move(620, 380); await page.mouse.down(); await page.mouse.move(720, 340, { steps: 8 });
         assert.deepEqual((await camera()).rotation, landscape.rotation, 'aim dragging must not orbit the camera');

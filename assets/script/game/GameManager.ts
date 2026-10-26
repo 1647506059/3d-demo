@@ -87,8 +87,8 @@ export class GameManager extends Component {
         const cannonNode = new Node('Cannon'); cannonNode.parent = this.node.scene!; this._cannon = cannonNode.addComponent(CannonController);
         this._playerCamera.onInteraction = () => this._cannon?.cancel();
         this._cannon.canAim = () => !this._playerCamera.viewMode && !this._playerCamera.interacting;
-        this._cannon.canFire = () => this.phase === 'aiming' && !this._paused && this.ammo > 0 && !this._playerCamera.interacting;
-        this._cannon.onShot = () => { this.ammo--; this._shots++; this._combo = 0; this.phase = 'flying'; this._sound(110, 0.16); this._shake = 0.1; this._render(); };
+        this._cannon.canFire = () => ['aiming', 'flying', 'settling'].includes(this.phase) && !this._paused && this.ammo > 0 && this.cleared < this.total && !this._playerCamera.interacting;
+        this._cannon.onShot = () => { this.ammo--; this._shots++; this._combo = 0; this.phase = 'flying'; this._settling = 0; this._impactElapsed = 0; this._sound(110, 0.16); this._shake = 0.1; this._render(); };
         this._cannon.onImpact = (point, hit, power) => this._impact(point, hit, power);
         this._render();
         try { await this._registry.init(); await this._cannon.setup(this._camera, this._ui); await this.load(this.level); }
@@ -156,9 +156,9 @@ export class GameManager extends Component {
         const forward = new Vec3(center.x - cannon.x, 0, center.z - cannon.z).normalize();
         const right = new Vec3(-forward.z, 0, forward.x);
         const targetDistance = Math.hypot(center.x - cannon.x, center.z - cannon.z);
-        const behind = Math.max(aspect < 1 ? 5 : 4, range - targetDistance);
+        const behind = Math.max(aspect < 1 ? 6.5 : 5.8, range - targetDistance);
         // A low shoulder camera sits behind the cannon, looking over its muzzle at the target.
-        this._cameraPosition.set(cannon.x - forward.x * behind + right.x * 0.85, this._cannon.mountPosition.y + 1.4, cannon.z - forward.z * behind + right.z * 0.85);
+        this._cameraPosition.set(cannon.x - forward.x * behind + right.x * 0.55, this._cannon.mountPosition.y + 2.25, cannon.z - forward.z * behind + right.z * 0.55);
         this._playerCamera.setHome(this._cameraPosition, center, preserveView);
         this._camera.near = 0.1;
         this._camera.far = Math.max(100, range * 3);
@@ -166,7 +166,8 @@ export class GameManager extends Component {
     private _onResize() { if (this._loaded) this._frame(true); }
 
     private _impact(point: Vec3, hit: Node | null, power: number) {
-        this.phase = 'settling'; this._settling = 0; this._impactElapsed = 0;
+        if (this.phase !== 'showcase') this.phase = this._cannon.activeShots > 0 ? 'flying' : 'settling';
+        this._settling = 0; this._impactElapsed = 0;
         const direct = hit?.getComponent(Destructible);
         if (direct) direct.hit(point, 2, 0);
         this._blast(point, 1.15 + power * 0.95, 0, direct || undefined);
@@ -209,6 +210,7 @@ export class GameManager extends Component {
 
     private _impactEffects(center: Vec3) {
         const add = (kind: Particle['kind'], color: string, size: number, life: number, velocity: Vec3) => {
+            if (this._particles.length >= 80) return;
             const poolKey = `${kind}/${color}`;
             const node = this._effectNode(poolKey, kind === 'ring' ? 'ring' : 'sphere', color, true); node.setScale(size, size, size);
             node.setWorldPosition(center);
@@ -251,12 +253,16 @@ export class GameManager extends Component {
         }
         this._shake = Math.max(0, this._shake - dt);
         this._playerCamera.setShake(this._shake);
-        if (this.phase === 'aiming' && this.total > 0 && this.cleared >= this.total) { this.phase = 'settling'; this._impactElapsed = 0; this._settling = 0; }
+        if (['aiming', 'flying', 'settling'].includes(this.phase) && this.total > 0 && this.cleared >= this.total) {
+            this.phase = 'showcase'; this._cannon.cancel(); this._impactElapsed = 0; this._settling = 0;
+            this._ui.toast('漂亮！目标全部摧毁'); this._render();
+        }
         if (this.phase === 'settling' || this.phase === 'showcase') {
+            // A late projectile can still hit, trigger a chain or change the result.
+            if (this._cannon.activeShots > 0) return;
             this._impactElapsed += dt;
             this._settling += dt;
             const cleared = this.cleared >= this.total;
-            if (cleared && this.phase !== 'showcase') { this.phase = 'showcase'; this._ui.toast('漂亮！目标全部摧毁'); this._render(); }
             const alive = this._targets.filter(target => !target.removed && isValid(target.node));
             const pending = alive.some(target => target.pending);
             const velocity = new Vec3();

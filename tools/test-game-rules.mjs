@@ -41,7 +41,7 @@ test('a direct final hit cannot show results until the impact and debris have pl
     assert.equal(rules.canResolveShot(10, 5, true, false, true), false, 'pending explosions must finish');
 });
 
-test('another shot waits for falling targets, with a bound for perpetually moving platforms', () => {
+test('idle presentation waits for falling targets, with a bound for perpetually moving platforms', () => {
     assert.equal(rules.canResolveShot(1.5, 1.5, false, false, false), false);
     assert.equal(rules.canResolveShot(2.2, 1, false, false, false), true);
     assert.equal(rules.canResolveShot(3, 2, false, true, false), false);
