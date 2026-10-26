@@ -22,6 +22,7 @@
 - 金色炸药桶具有更大的爆炸范围，石头需要更高伤害。连爆和剩余炮弹提供额外得分。
 - 弹药预算随目标数量变化；关卡中的旋转平台、移动平台和移动挡板由原有 JSON 配置驱动。
 - 模型来自 `assets/mesh` 分包，关卡来自 `assets/resources/prod-13-json`，不依赖运行时远程服务。
+- 重复模型共享实例化材质，主要物体保留单级阴影；装饰、弹道点和碎片不额外投影。相机与弹道按变化更新，连爆合并同帧 HUD 重绘，碎片使用对象池并限制为最多 80 个，保留油桶翻滚、烟尘与冲击波。
 
 ## Pink 开发流程
 
@@ -55,6 +56,7 @@ $env:CANNON_CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 node tools/test-game-preview.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-presentation.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-camera.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
+node tools/test-game-performance.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 ```
 
 回归覆盖暂停/继续、真实鼠标瞄准和开炮、单发扣弹、碰撞与连爆、通关、下一关、重试、最后一发失败，以及横竖屏切换。表现回归额外检查炮口后方镜头、瞄准时镜头稳定、直接命中最后一个目标时的无弹窗展示，以及展示暂停和延迟结算。视角回归覆盖右键环视、中键平移、滚轮缩放、V/菜单回正、暂停与屏幕旋转，以及真实双指操作和开炮的互斥。验证截图和结果保存在 `temp/codex-cannon/`，不进入版本库。

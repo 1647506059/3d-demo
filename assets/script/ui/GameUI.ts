@@ -29,6 +29,8 @@ export class GameUI extends Component {
     private _labels = new Map<string, Label>();
     private _progress!: Graphics;
     private _power!: Graphics;
+    private _barPixels = new WeakMap<Graphics, number>();
+    private _powerValue = 0.55;
     private _modal!: Node;
     private _w = 1280;
     private _h = 800;
@@ -45,6 +47,8 @@ export class GameUI extends Component {
     private _modalDetail = '';
     private _uiCamera!: Camera;
     private _reticle!: Node;
+    private _layoutVersion = 0;
+    get layoutVersion(): number { return this._layoutVersion; }
 
     onLoad() { this._build(); view.on('canvas-resize', this._resize, this); }
     onDestroy() { view.off('canvas-resize', this._resize, this); this._root?.destroy(); }
@@ -55,6 +59,7 @@ export class GameUI extends Component {
     }
 
     private _build() {
+        this._layoutVersion++;
         this._root?.destroy(); this._labels.clear(); this._hudBlockers = [];
         const aspect = screen.windowSize.width / Math.max(1, screen.windowSize.height);
         const portrait = aspect < 0.85;
@@ -104,7 +109,7 @@ export class GameUI extends Component {
         fire.on(Node.EventType.TOUCH_CANCEL, () => this.onCancel?.());
         this._label(root, 'Status', '', 0, h / 2 - 102, w - 40, 16, C.ink);
         this._modal = this._node('ResultOverlay', root, 0, 0, w, h); this._modal.active = false;
-        this.setPower(0.55);
+        this.setPower(this._powerValue);
     }
 
     render(state: HUDState) {
@@ -118,10 +123,12 @@ export class GameUI extends Component {
         this._updateFire();
     }
 
-    setPower(value: number) { this._bar(this._power, 84, value, C.ink); this._power.node.active = this._charging; }
+    setPower(value: number) { this._powerValue = value; if (this._charging) this._bar(this._power, 84, value, C.ink); this._power.node.active = this._charging; }
     setCharging(charging: boolean) {
+        if (this._charging === charging) return;
         this._charging = charging;
         if (charging) { this._hintTime = 0; this._text('Hint', ''); }
+        if (charging && this._power) this._bar(this._power, 84, this._powerValue, C.ink);
         if (this._power) this._power.node.active = charging;
         this._updateFire();
     }
@@ -178,7 +185,11 @@ export class GameUI extends Component {
 
     private _text(key: string, text: string) { const label = this._labels.get(key); if (label) label.string = text; }
     private _bar(g: Graphics, width: number, fraction: number, color: string) {
-        if (!g) return; g.clear(); g.fillColor = new Color().fromHEX(C.line); g.roundRect(0, -3, width, 6, 3); g.fill();
+        if (!g) return;
+        const pixels = Math.round(width * Math.max(0, Math.min(1, fraction)));
+        if (this._barPixels.get(g) === pixels) return;
+        this._barPixels.set(g, pixels);
+        g.clear(); g.fillColor = new Color().fromHEX(C.line); g.roundRect(0, -3, width, 6, 3); g.fill();
         if (fraction > 0) { g.fillColor = new Color().fromHEX(color); g.roundRect(0, -3, Math.max(6, width * Math.min(1, fraction)), 6, 3); g.fill(); }
     }
     private _node(name: string, parent: Node, x: number, y: number, w: number, h: number) {

@@ -1,4 +1,4 @@
-import { _decorator, BoxCollider, Camera, Color, Component, isValid, Node, PhysicsSystem, RigidBody, screen, sys, Vec3, Vec4, view } from 'cc';
+import { _decorator, BoxCollider, Camera, Color, Component, DirectionalLight, isValid, Node, PhysicsSystem, RigidBody, screen, sys, Vec3, Vec4, view } from 'cc';
 import { DebugOrbitCamera } from '../DebugOrbitCamera';
 import { GameUI } from '../ui/GameUI';
 import { CannonController } from './CannonController';
@@ -12,7 +12,7 @@ import { PlayerCameraController } from './PlayerCameraController';
 const { ccclass } = _decorator;
 type Phase = 'loading' | 'aiming' | 'flying' | 'settling' | 'showcase' | 'won' | 'lost' | 'error';
 interface Progress { level: number; scores: Record<string, number>; stars: Record<string, number>; muted: boolean }
-interface Particle { node: Node; velocity: Vec3; age: number; life: number; size: number; kind: 'debris' | 'smoke' | 'flash' | 'ring' }
+interface Particle { node: Node; velocity: Vec3; age: number; life: number; size: number; kind: 'debris' | 'smoke' | 'flash' | 'ring'; poolKey: string }
 
 @ccclass('GameManager')
 export class GameManager extends Component {
@@ -34,6 +34,9 @@ export class GameManager extends Component {
     private _loaded: LevelLoadResult | null = null;
     private _targets: Destructible[] = [];
     private _particles: Particle[] = [];
+    private _effectPool = new Map<string, Node[]>();
+    private _particlePosition = new Vec3();
+    private _hudDirty = false;
     private _settling = 0;
     private _impactElapsed = 0;
     private _shots = 0;
@@ -61,6 +64,8 @@ export class GameManager extends Component {
         globals.skybox.useIBL = false;
         globals.ambient.skyColor = new Vec4(0.8, 0.84, 0.9, 1);
         globals.ambient.groundAlbedo = new Vec4(0.45, 0.5, 0.55, 1);
+        const light = this.node.scene!.getComponentInChildren(DirectionalLight);
+        if (light) light.csmLevel = 1;
         view.on('canvas-resize', this._onResize, this);
         const plane = this.node.scene!.getChildByName('Plane'); if (plane) plane.active = false;
         this._ui = this.node.addComponent(GameUI);
@@ -96,6 +101,7 @@ export class GameManager extends Component {
         this.phase = 'loading'; this._cannon.reset(); this._ui.hideModal();
         for (const target of this._targets) if (isValid(target.node)) target.node.destroy(); this._targets = [];
         for (const particle of this._particles) particle.node.destroy(); this._particles = [];
+        for (const pool of this._effectPool.values()) for (const node of pool) node.destroy(); this._effectPool.clear();
         for (const node of [...this._decor.children]) node.destroy();
         this.level = level; this.stage = stage;
         if (stage === 0) { this.score = 0; this._shots = 0; this._levelBudget = 0; }
@@ -188,22 +194,28 @@ export class GameManager extends Component {
     }
 
     private _burst(center: Vec3, count: number, color: string) {
-        for (let i = 0; i < count && this._particles.length < 160; i++) {
+        for (let i = 0; i < count && this._particles.length < 80; i++) {
             const size = 0.09 + Math.random() * 0.16;
-            const node = shape(this._decor, 'ExplosionFragment', 'box', i % 3 ? color : '#F7D9A1', new Vec3(), new Vec3(size, size, size)); node.setWorldPosition(center);
-            this._particles.push({ node, velocity: new Vec3((Math.random() - 0.5) * 7, 2 + Math.random() * 5, (Math.random() - 0.5) * 7), age: 0, life: 1.2 + Math.random() * 1.2, size, kind: 'debris' });
+            const tint = i % 3 ? color : '#F7D9A1', poolKey = `debris/${tint}`;
+            const node = this._effectNode(poolKey, 'box', tint, false); node.setWorldPosition(center); node.setScale(size, size, size);
+            this._particles.push({ node, velocity: new Vec3((Math.random() - 0.5) * 7, 2 + Math.random() * 5, (Math.random() - 0.5) * 7), age: 0, life: 1.2 + Math.random() * 1.2, size, kind: 'debris', poolKey });
         }
     }
 
     private _impactEffects(center: Vec3) {
         const add = (kind: Particle['kind'], color: string, size: number, life: number, velocity: Vec3) => {
-            const node = shape(this._decor, `Impact_${kind}`, kind === 'ring' ? 'ring' : 'sphere', color, new Vec3(), new Vec3(size, size, size), true);
+            const poolKey = `${kind}/${color}`;
+            const node = this._effectNode(poolKey, kind === 'ring' ? 'ring' : 'sphere', color, true); node.setScale(size, size, size);
             node.setWorldPosition(center);
-            this._particles.push({ node, velocity, age: 0, life, size, kind });
+            this._particles.push({ node, velocity, age: 0, life, size, kind, poolKey });
         };
         add('flash', '#FFF0AD', 1.7, 0.28, new Vec3());
         add('ring', '#FFC069', 1, 0.7, new Vec3());
         for (let i = 0; i < 4; i++) add('smoke', i % 2 ? '#7B7770' : '#AAA18C', 0.4 + i * 0.1, 1.8 + i * 0.2, new Vec3((Math.random() - 0.5) * 1.7, 0.8 + i * 0.25, (Math.random() - 0.5) * 1.7));
+    }
+    private _effectNode(key: string, kind: 'box' | 'sphere' | 'ring', color: string, luminous: boolean): Node {
+        const node = this._effectPool.get(key)?.pop() || shape(this._decor, key, kind, color, Vec3.ZERO, Vec3.ONE, luminous);
+        node.active = true; node.setRotationFromEuler(0, 0, 0); return node;
     }
 
     update(dt: number) {
@@ -213,15 +225,19 @@ export class GameManager extends Component {
         this._mechanics?.step(dt);
         for (let i = this._particles.length - 1; i >= 0; i--) {
             const p = this._particles[i]; p.age += dt;
-            if (p.age > p.life) { p.node.destroy(); this._particles.splice(i, 1); continue; }
+            if (p.age > p.life) {
+                p.node.active = false;
+                const pool = this._effectPool.get(p.poolKey) || []; pool.push(p.node); this._effectPool.set(p.poolKey, pool);
+                this._particles.splice(i, 1); continue;
+            }
             if (p.kind === 'debris') {
                 p.velocity.y -= 10 * dt;
-                const next = Vec3.scaleAndAdd(new Vec3(), p.node.worldPosition, p.velocity, dt);
+                const next = Vec3.scaleAndAdd(this._particlePosition, p.node.worldPosition, p.velocity, dt);
                 if (next.y < 0.04 && p.velocity.y < 0) { next.y = 0.04; p.velocity.y *= -0.32; p.velocity.x *= 0.7; p.velocity.z *= 0.7; }
                 p.node.setWorldPosition(next); p.node.setRotationFromEuler(p.age * 180, p.age * 250, 0);
-                p.node.setScale(Vec3.ONE.clone().multiplyScalar(p.size * Math.min(1, (p.life - p.age) / 0.55)));
+                const size = p.size * Math.min(1, (p.life - p.age) / 0.55); p.node.setScale(size, size, size);
             } else {
-                p.node.setWorldPosition(Vec3.scaleAndAdd(new Vec3(), p.node.worldPosition, p.velocity, dt));
+                p.node.setWorldPosition(Vec3.scaleAndAdd(this._particlePosition, p.node.worldPosition, p.velocity, dt));
                 const t = p.age / p.life;
                 const scale = p.kind === 'flash' ? p.size * (1 + t) * (1 - t) : p.kind === 'ring' ? 0.5 + t * 5 : p.size * (1 + t * 3) * Math.min(1, (1 - t) * 4);
                 p.node.setScale(scale, p.kind === 'ring' ? Math.max(0.03, (1 - t) * 0.4) : scale, scale);
@@ -267,7 +283,12 @@ export class GameManager extends Component {
         if (this._paused) this._ui.showModal('paused', 0, '放松一下，回来再炸个痛快。'); else this._ui.hideModal();
     }
     private _resume() { this._paused = false; if (this._cannon) this._cannon.paused = false; PhysicsSystem.instance.enable = true; }
-    private _render() { this._ui?.render({ level: this.level, stage: this.stage, stages: this._loaded?.config.stages.length || 1, ammo: this.ammo, budget: this.budget, cleared: this.cleared, total: this.total, score: this.score, best: this._progress.scores[String(this.level)] || 0, phase: this.phase }); }
+    private _render() { this._hudDirty = true; }
+    lateUpdate() {
+        if (!this._hudDirty || !this._ui) return;
+        this._hudDirty = false;
+        this._ui.render({ level: this.level, stage: this.stage, stages: this._loaded?.config.stages.length || 1, ammo: this.ammo, budget: this.budget, cleared: this.cleared, total: this.total, score: this.score, best: this._progress.scores[String(this.level)] || 0, phase: this.phase });
+    }
     private _save() { try { sys.localStorage.setItem('cannon-progress-v1', JSON.stringify(this._progress)); } catch {} }
     private _fail(error: unknown) { console.error('[CannonGame]', error); this.phase = 'error'; this._ui.showModal('error', 0, '请点击重新挑战，重新装载关卡资源。'); }
     private _sound(frequency: number, duration: number) {

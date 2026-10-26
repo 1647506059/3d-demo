@@ -19,6 +19,8 @@ export class PlayerCameraController extends Component {
     private _configured = false;
     private _manual = false;
     private _shake = 0;
+    private _appliedShake = 0;
+    private _poseDirty = false;
     private _mouseMode: 'orbit' | 'pan' | null = null;
     private _pointerButton = EventMouse.BUTTON_LEFT;
     private _captureMouse = (event: MouseEvent) => { this._pointerButton = event.button; };
@@ -77,14 +79,15 @@ export class PlayerCameraController extends Component {
         this.ui.toast(this.viewMode ? '拖动画面环视 · 双指缩放' : '已切回瞄准 · V 回正视角');
     }
     cancelInteraction() { this._mouseMode = null; this._pointerButton = EventMouse.BUTTON_LEFT; this._touches.clear(); this._multiTouch = false; this._pairDistance = 0; this.onInteraction?.(); }
-    setShake(value: number) { this._shake = value; }
-    lateUpdate() { if (this._configured) this._apply(); }
+    setShake(value: number) { if (this._shake !== value) { this._shake = value; this._poseDirty = true; } }
+    lateUpdate() { if (this._configured && (this._poseDirty || this._shake > 0 || this._appliedShake > 0)) this._apply(); }
     private _apply() {
         const horizontal = this._radius * Math.cos(this._pitch);
         this.node.setWorldPosition(this._pivot.x + Math.sin(this._yaw) * horizontal + (Math.random() - 0.5) * this._shake,
             Math.max(0.45, this._pivot.y + Math.sin(this._pitch) * this._radius) + (Math.random() - 0.5) * this._shake,
             this._pivot.z + Math.cos(this._yaw) * horizontal);
         this.node.lookAt(this._pivot);
+        this._poseDirty = false; this._appliedShake = this._shake;
     }
     private _rotate(dx: number, dy: number) {
         this._manual = true; this._yaw -= dx * 0.0045;

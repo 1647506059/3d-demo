@@ -7,7 +7,8 @@ export function material(hex: string, luminous = false): Material {
     const key = `${hex}/${luminous}`;
     if (!materials.has(key)) {
         const result = new Material();
-        result.initialize({ effectName: luminous ? 'builtin-unlit' : 'builtin-standard' });
+        // Shared meshes/materials can be submitted together, including moving barrels and fragments.
+        result.initialize({ effectName: luminous ? 'builtin-unlit' : 'builtin-standard', defines: { USE_INSTANCING: true } });
         result.setProperty(luminous ? 'mainColor' : 'albedo', new Color().fromHEX(hex));
         if (!luminous) { result.setProperty('roughness', 0.75); result.setProperty('metallic', 0.15); }
         materials.set(key, result);
@@ -22,7 +23,7 @@ export function paint(node: Node, hex: string) {
     }
 }
 
-export function shape(parent: Node, name: string, kind: 'box' | 'sphere' | 'cylinder' | 'ring', color: string, position: Vec3, scale: Vec3, luminous = false): Node {
+export function shape(parent: Node, name: string, kind: 'box' | 'sphere' | 'cylinder' | 'ring', color: string, position: Vec3, scale: Vec3, luminous = false, castsShadow = false): Node {
     const node = new Node(name);
     node.parent = parent;
     node.setPosition(position);
@@ -34,6 +35,7 @@ export function shape(parent: Node, name: string, kind: 'box' | 'sphere' | 'cyli
     const renderer = node.addComponent(MeshRenderer);
     renderer.mesh = meshes.get(kind)!;
     renderer.setMaterial(material(color, luminous), 0);
-    renderer.shadowCastingMode = luminous ? MeshRenderer.ShadowCastingMode.OFF : MeshRenderer.ShadowCastingMode.ON;
+    // Decorative bands, aim dots and small fragments do not need separate shadow passes.
+    renderer.shadowCastingMode = castsShadow && !luminous ? MeshRenderer.ShadowCastingMode.ON : MeshRenderer.ShadowCastingMode.OFF;
     return node;
 }

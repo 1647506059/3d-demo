@@ -1,4 +1,4 @@
-import { _decorator, Camera, Component, EventMouse, geometry, Input, input, Node, PhysicsSystem, Vec3 } from 'cc';
+import { _decorator, Camera, Component, EventMouse, geometry, Input, input, Node, PhysicsSystem, Quat, Vec3 } from 'cc';
 import { MeshLoader } from './MeshLoader';
 import { GameUI } from '../ui/GameUI';
 import { LevelBounds } from './LevelLoader';
@@ -26,6 +26,12 @@ export class CannonController extends Component {
     private _recoil = 0;
     private _visual!: Node;
     private _flash: Node | null = null;
+    private _trajectoryDirty = true;
+    private _wasVisible = false;
+    private _lastCameraPosition = new Vec3(Infinity, Infinity, Infinity);
+    private _lastCameraRotation = new Quat();
+    private _lastUILayout = -1;
+    private _reticleFrames = 0;
     paused = false;
     get muzzlePosition(): Readonly<Vec3> { return this._muzzle; }
 
@@ -66,7 +72,7 @@ export class CannonController extends Component {
     }
 
     beginCharge() { if (!this.canFire() || this._shot || this.paused) return; this._charging = true; this._charge = 0.55; this._time = 0; this.ui.setCharging(true); }
-    cancel() { this._charging = false; this._charge = 0.55; this.ui?.setPower(this._charge); this.ui?.setCharging(false); }
+    cancel() { this._charging = false; if (this._charge !== 0.55) this._trajectoryDirty = true; this._charge = 0.55; this.ui?.setPower(this._charge); this.ui?.setCharging(false); }
     release() {
         if (!this._charging || !this.canFire() || this._shot || this.paused) { this.cancel(); return; }
         this._charging = false;
@@ -79,7 +85,11 @@ export class CannonController extends Component {
         this._recoil = 0.22; this.onShot?.(this._charge);
     }
 
-    reset() { this._shot?.node.destroy(); this._shot = null; this._flash?.destroy(); this._flash = null; this._recoil = 0; this.cancel(); }
+    reset() {
+        this._shot?.node.destroy(); this._shot = null; this._flash?.destroy(); this._flash = null;
+        if (this._visual?.isValid) this._visual.setPosition(0, 0, -0.2);
+        this._recoil = 0; this._trajectoryDirty = true; this.cancel();
+    }
     private _mouseAim(e: EventMouse) {
         if (!this.canAim()) return;
         const y = e.getLocationY(); if (!this.ui?.isGameplayScreenPoint(e.getLocationX(), y)) return;
@@ -91,6 +101,7 @@ export class CannonController extends Component {
     }
     private _updateAim() {
         if (!this._barrel) return;
+        this._trajectoryDirty = true;
         const origin = this._barrel.worldPosition;
         const aimDirection = Vec3.subtract(new Vec3(), this._aim, origin).normalize();
         this._muzzle.set(origin).add(aimDirection.multiplyScalar(1.25));
@@ -104,17 +115,35 @@ export class CannonController extends Component {
     update(dt: number) {
         if (!this._bounds || this.paused) return;
         dt = Math.min(dt, 0.05);
-        if (this._charging) { this._time += dt; this._charge = Math.min(1, 0.55 + this._time * 0.42); this.ui.setPower(this._charge); this._updateAim(); }
-        this._recoil = Math.max(0, this._recoil - dt); if (this._visual) this._visual.setPosition(0, 0, -0.2 + this._recoil * 1.5);
+        if (this._charging) {
+            this._time += dt; const power = Math.min(1, 0.55 + this._time * 0.42);
+            if (power !== this._charge) { this._charge = power; this.ui.setPower(this._charge); this._updateAim(); }
+        }
+        if (this._recoil > 0) { this._recoil = Math.max(0, this._recoil - dt); this._visual?.setPosition(0, 0, -0.2 + this._recoil * 1.5); }
         if (this._flash) { const size = Math.max(0, (this._recoil - 0.08) / 0.14); this._flash.setScale(size * 0.7, size * 0.7, size); if (size <= 0) { this._flash.destroy(); this._flash = null; } }
         const visible = this.canFire() && !this._shot;
-        this.ui.setAimScreen(this.camera.worldToScreen(this._aim), visible);
-        const velocity = this._velocity();
-        const flightTime = Math.abs((this._aim.z - this._muzzle.z) / velocity.z);
-        for (let i = 0; i < this._dots.length; i++) {
-            const dot = this._dots[i]; dot.active = visible;
-            if (visible) { const t = (i + 1) / this._dots.length * flightTime; dot.setWorldPosition(this._muzzle.x + velocity.x * t, this._muzzle.y + velocity.y * t - GRAVITY * t * t / 2, this._muzzle.z + velocity.z * t); }
+        const visibilityChanged = visible !== this._wasVisible;
+        const cameraChanged = !this.camera.node.worldPosition.equals(this._lastCameraPosition) || !this.camera.node.worldRotation.equals(this._lastCameraRotation);
+        if (this._trajectoryDirty || cameraChanged || visibilityChanged || this._lastUILayout !== this.ui.layoutVersion) {
+            // Camera matrices are refreshed during rendering, after component updates.
+            this._reticleFrames = 2;
+            this._lastUILayout = this.ui.layoutVersion;
         }
+        if (this._reticleFrames > 0) {
+            this.ui.setAimScreen(this.camera.worldToScreen(this._aim), visible);
+            this._lastCameraPosition.set(this.camera.node.worldPosition); this._lastCameraRotation.set(this.camera.node.worldRotation);
+            this._reticleFrames--;
+        }
+        if (visibilityChanged) for (const dot of this._dots) dot.active = visible;
+        if (visible && (this._trajectoryDirty || visibilityChanged)) {
+            const velocity = this._velocity(), flightTime = Math.abs((this._aim.z - this._muzzle.z) / velocity.z);
+            for (let i = 0; i < this._dots.length; i++) {
+                const t = (i + 1) / this._dots.length * flightTime;
+                this._dots[i].setWorldPosition(this._muzzle.x + velocity.x * t, this._muzzle.y + velocity.y * t - GRAVITY * t * t / 2, this._muzzle.z + velocity.z * t);
+            }
+        }
+        this._trajectoryDirty = false;
+        this._wasVisible = visible;
         if (!this._shot) return;
         const shot = this._shot; const previous = shot.node.worldPosition.clone(); shot.time += dt;
         const t = shot.time;
