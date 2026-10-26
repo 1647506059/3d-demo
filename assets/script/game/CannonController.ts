@@ -1,0 +1,119 @@
+import { _decorator, Camera, Component, EventMouse, geometry, Input, input, Node, PhysicsSystem, screen, Vec3 } from 'cc';
+import { MeshLoader } from './MeshLoader';
+import { GameUI } from '../ui/GameUI';
+import { LevelBounds } from './LevelLoader';
+import { GRAVITY, launchVelocity } from './GameRules';
+import { paint, shape } from './GameVisuals';
+const { ccclass } = _decorator;
+
+@ccclass('CannonController')
+export class CannonController extends Component {
+    camera!: Camera;
+    ui!: GameUI;
+    canFire: (() => boolean) = () => false;
+    onShot: ((power: number) => void) | null = null;
+    onImpact: ((point: Vec3, hit: Node | null, power: number) => void) | null = null;
+    private _barrel!: Node;
+    private _muzzle = new Vec3();
+    private _aim = new Vec3();
+    private _bounds!: LevelBounds;
+    private _dots: Node[] = [];
+    private _shot: { node: Node; from: Vec3; velocity: Vec3; time: number; power: number } | null = null;
+    private _charging = false;
+    private _charge = 0.55;
+    private _time = 0;
+    private _recoil = 0;
+    private _visual!: Node;
+    paused = false;
+
+    async setup(camera: Camera, ui: GameUI) {
+        this.camera = camera; this.ui = ui;
+        this._barrel = new Node('CannonAim'); this._barrel.parent = this.node; this._barrel.setPosition(0, 0.95, 0);
+        const base = await MeshLoader.instantiate('CannonBottom', this.node); base.setScale(8, 8, 8); base.setPosition(0, 0.55, -0.35); paint(base, '#344D62');
+        this._visual = await MeshLoader.instantiate('CannonBody', this._barrel); this._visual.setScale(8, 8, 8); this._visual.setPosition(0, 0, -0.2); paint(this._visual, '#FFB74E');
+        shape(this.node, 'CannonPlinth', 'cylinder', '#294958', new Vec3(0, 0.1, 0), new Vec3(2.8, 0.25, 2.8));
+        for (let i = 0; i < 22; i++) { const dot = shape(this.node.scene!, 'TrajectoryDot', 'sphere', i === 21 ? '#FFBD59' : '#BCE8DD', new Vec3(), new Vec3(0.07, 0.07, 0.07)); this._dots.push(dot); }
+        ui.onAimStart = e => { if (!this.canFire() || this.paused) return; this.aimAtScreen(e.getLocationX(), e.getLocationY()); this.beginCharge(); };
+        ui.onAimMove = e => { if (this._charging) this.aimAtScreen(e.getLocationX(), e.getLocationY()); };
+        ui.onAimEnd = () => this.release(); ui.onCharge = () => this.beginCharge(); ui.onFire = () => this.release(); ui.onCancel = () => this.cancel();
+        input.on(Input.EventType.MOUSE_MOVE, this._mouseAim, this);
+    }
+
+    configure(bounds: LevelBounds) {
+        this.reset(); this._bounds = bounds;
+        const centerX = (bounds.min.x + bounds.max.x) / 2;
+        this.node.setPosition(centerX + 2.6, 0, bounds.min.z - 5.3);
+        this._aim.set(centerX, Math.max(1.2, bounds.min.y + (bounds.max.y - bounds.min.y) * 0.45), bounds.min.z + 0.2);
+        this._updateAim();
+    }
+
+    aimAtScreen(x: number, y: number) {
+        if (!this._bounds || this._shot || !this.canFire() || this.paused) return;
+        const ray = this.camera.screenPointToRay(x, y);
+        if (PhysicsSystem.instance.raycastClosest(ray, 0xffffffff, this.camera.far, false)) {
+            const hit = PhysicsSystem.instance.raycastClosestResult;
+            this._aim.set(hit.hitPoint).add(ray.d.clone().multiplyScalar(0.08));
+            this._updateAim(); return;
+        }
+        const z = this._bounds.min.z + 0.2;
+        const t = (z - ray.o.z) / ray.d.z;
+        if (t <= 0 || !Number.isFinite(t)) return;
+        this._aim.set(Math.max(this._bounds.min.x - 3, Math.min(this._bounds.max.x + 3, ray.o.x + ray.d.x * t)), Math.max(0.15, Math.min(this._bounds.max.y + 3, ray.o.y + ray.d.y * t)), z);
+        this._updateAim();
+    }
+
+    beginCharge() { if (!this.canFire() || this._shot || this.paused) return; this._charging = true; this._charge = 0.55; this._time = 0; }
+    cancel() { this._charging = false; this._charge = 0.55; this.ui?.setPower(this._charge); }
+    release() {
+        if (!this._charging || !this.canFire() || this._shot || this.paused) { this.cancel(); return; }
+        this._charging = false;
+        const velocity = this._velocity();
+        const ball = shape(this.node.scene!, 'LiveCannonBall', 'sphere', '#FFCD6C', this._muzzle.clone(), new Vec3(0.3, 0.3, 0.3));
+        this._shot = { node: ball, from: this._muzzle.clone(), velocity, time: 0, power: this._charge };
+        this._recoil = 0.22; this.onShot?.(this._charge);
+    }
+
+    reset() { this._shot?.node.destroy(); this._shot = null; this.cancel(); }
+    private _mouseAim(e: EventMouse) {
+        const y = e.getLocationY(); if (y < screen.windowSize.height * 0.24 || y > screen.windowSize.height * 0.78) return;
+        if (!this._charging) this.aimAtScreen(e.getLocationX(), y);
+    }
+    private _velocity(): Vec3 {
+        const t = Math.max(0.38, Math.min(1.4, Vec3.distance(this._aim, this._muzzle) / (15 + this._charge * 9)));
+        const v = launchVelocity(this._muzzle, this._aim, t); return new Vec3(v.x, v.y, v.z);
+    }
+    private _updateAim() {
+        if (!this._barrel) return;
+        const origin = this._barrel.worldPosition;
+        const aimDirection = Vec3.subtract(new Vec3(), this._aim, origin).normalize();
+        this._muzzle.set(origin).add(aimDirection.multiplyScalar(1.25));
+        const v = this._velocity(); this._barrel.lookAt(Vec3.add(new Vec3(), origin, v));
+    }
+    update(dt: number) {
+        if (!this._bounds || this.paused) return;
+        dt = Math.min(dt, 0.05);
+        if (this._charging) { this._time += dt; this._charge = Math.min(1, 0.55 + this._time * 0.42); this.ui.setPower(this._charge); this._updateAim(); }
+        this._recoil = Math.max(0, this._recoil - dt); if (this._visual) this._visual.setPosition(0, 0, -0.2 + this._recoil * 1.5);
+        const visible = this.canFire() && !this._shot;
+        this.ui.setAimScreen(this.camera.worldToScreen(this._aim), visible);
+        const velocity = this._velocity();
+        const flightTime = Math.abs((this._aim.z - this._muzzle.z) / velocity.z);
+        for (let i = 0; i < this._dots.length; i++) {
+            const dot = this._dots[i]; dot.active = visible;
+            if (visible) { const t = (i + 1) / this._dots.length * flightTime; dot.setWorldPosition(this._muzzle.x + velocity.x * t, this._muzzle.y + velocity.y * t - GRAVITY * t * t / 2, this._muzzle.z + velocity.z * t); }
+        }
+        if (!this._shot) return;
+        const shot = this._shot; const previous = shot.node.worldPosition.clone(); shot.time += dt;
+        const t = shot.time;
+        const next = new Vec3(shot.from.x + shot.velocity.x * t, shot.from.y + shot.velocity.y * t - GRAVITY * t * t / 2, shot.from.z + shot.velocity.z * t);
+        const delta = Vec3.subtract(new Vec3(), next, previous); const length = delta.length();
+        if (length > 0 && PhysicsSystem.instance.raycastClosest(new geometry.Ray(previous.x, previous.y, previous.z, delta.x / length, delta.y / length, delta.z / length), 0xffffffff, length + 0.12, false)) {
+            const hit = PhysicsSystem.instance.raycastClosestResult;
+            this._impact(hit.hitPoint.clone(), hit.collider.node, shot.power); return;
+        }
+        shot.node.setWorldPosition(next);
+        if (next.y < 0.12 || t > 3.2) this._impact(next, null, shot.power);
+    }
+    private _impact(point: Vec3, node: Node | null, power: number) { this._shot?.node.destroy(); this._shot = null; this.onImpact?.(point, node, power); this._charge = 0.55; this.ui.setPower(this._charge); }
+    onDestroy() { input.off(Input.EventType.MOUSE_MOVE, this._mouseAim, this); this.reset(); for (const dot of this._dots) dot.destroy(); }
+}

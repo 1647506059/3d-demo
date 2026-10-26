@@ -14,6 +14,8 @@ export interface LevelBounds {
 export interface LevelLoadResult {
     config: LevelConfig;
     bounds: LevelBounds;
+    objects: { node: Node; config: import('./LevelData').ObjectConfig; floor: number }[];
+    tables: Map<number, TableInfo>;
 }
 
 /** 从 JSON 加载关卡并生成静态展示模型 */
@@ -21,11 +23,11 @@ export class LevelLoader {
     constructor(private _registry: ObjectTypeRegistry) {}
 
     /** 加载指定关卡到 levelRoot，仅生成可视模型，并整体贴地摆放 */
-    async loadLevel(levelIndex: number, levelRoot: Node): Promise<LevelLoadResult> {
-        levelRoot.removeAllChildren();
+    async loadLevel(levelIndex: number, levelRoot: Node, stageIndex = 0): Promise<LevelLoadResult> {
+        for (const child of [...levelRoot.children]) child.destroy();
 
         const config = await this._loadConfig(levelIndex);
-        const stage = config.stages[0];
+        const stage = config.stages[stageIndex];
         if (!stage) {
             throw new Error(`关卡 ${levelIndex} 无 stages 数据`);
         }
@@ -37,24 +39,31 @@ export class LevelLoader {
 
         const tableMap = new Map<number, TableInfo>();
         for (const tableCfg of stage.tables) {
-            const info = await TableBuilder.build(tableCfg, levelRoot);
+            const supported = stage.objects.filter(o => o.tableId === tableCfg.id);
+            const footprint = supported.length ? {
+                minX: Math.min(...supported.map(o => o.pos.x - o.size.x / 2)), maxX: Math.max(...supported.map(o => o.pos.x + o.size.x / 2)),
+                minZ: Math.min(...supported.map(o => o.pos.z - o.size.z / 2)), maxZ: Math.max(...supported.map(o => o.pos.z + o.size.z / 2)),
+            } : undefined;
+            const info = await TableBuilder.build(tableCfg, levelRoot, footprint);
             tableMap.set(tableCfg.id, info);
         }
 
+        const objects: LevelLoadResult['objects'] = [];
         for (const objCfg of stage.objects) {
             const table = tableMap.get(objCfg.tableId);
             if (!table) {
                 console.warn(`[LevelLoader] 找不到 tableId=${objCfg.tableId}`);
                 continue;
             }
-            await LevelObjectBuilder.build(objCfg, this._registry, table.node);
+            const node = await LevelObjectBuilder.build(objCfg, this._registry, table.node);
+            objects.push({ node, config: objCfg, floor: table.topY });
         }
 
         const bounds: LevelBounds = {
             min: new Vec3(rawBounds.min.x, rawBounds.min.y + groundOffsetY, rawBounds.min.z),
             max: new Vec3(rawBounds.max.x, rawBounds.max.y + groundOffsetY, rawBounds.max.z),
         };
-        return { config, bounds };
+        return { config, bounds, objects, tables: tableMap };
     }
 
     /** 根据关卡原始配置估算世界包围盒，供相机取景使用 */

@@ -1,0 +1,228 @@
+import { _decorator, BoxCollider, Camera, Color, Component, isValid, Node, PhysicsSystem, RigidBody, screen, sys, Vec3, Vec4, view } from 'cc';
+import { DebugOrbitCamera } from '../DebugOrbitCamera';
+import { GameUI } from '../ui/GameUI';
+import { CannonController } from './CannonController';
+import { Destructible } from './Destructible';
+import { ammoForStage, MAX_LEVEL, starsForWin } from './GameRules';
+import { shape } from './GameVisuals';
+import { LevelLoader, LevelLoadResult } from './LevelLoader';
+import { ObjectTypeRegistry } from './ObjectTypeRegistry';
+import { StageMechanics } from './StageMechanics';
+const { ccclass } = _decorator;
+type Phase = 'loading' | 'aiming' | 'flying' | 'settling' | 'won' | 'lost' | 'error';
+interface Progress { level: number; scores: Record<string, number>; stars: Record<string, number>; muted: boolean }
+interface Particle { node: Node; velocity: Vec3; age: number; life: number; size: number }
+
+@ccclass('GameManager')
+export class GameManager extends Component {
+    level = 1;
+    stage = 0;
+    phase: Phase = 'loading';
+    ammo = 0;
+    budget = 0;
+    score = 0;
+    cleared = 0;
+    total = 0;
+    private _ui!: GameUI;
+    private _cannon!: CannonController;
+    private _camera!: Camera;
+    private _registry = new ObjectTypeRegistry();
+    private _root!: Node;
+    private _decor!: Node;
+    private _loaded: LevelLoadResult | null = null;
+    private _targets: Destructible[] = [];
+    private _particles: Particle[] = [];
+    private _settling = 0;
+    private _shots = 0;
+    private _levelBudget = 0;
+    private _combo = 0;
+    private _paused = false;
+    private _revision = 0;
+    private _cameraPosition = new Vec3();
+    private _shake = 0;
+    private _mechanics: StageMechanics | null = null;
+    private _audio: AudioContext | null = null;
+    private _progress: Progress = { level: 1, scores: {}, stars: {}, muted: false };
+
+    async initialize(startLevel: number) {
+        try { const saved = JSON.parse(sys.localStorage.getItem('cannon-progress-v1') || 'null'); if (saved && Number.isFinite(saved.level)) this._progress = { ...this._progress, ...saved }; } catch { /* Storage can be unavailable. */ }
+        this.level = Math.max(1, Math.min(MAX_LEVEL, startLevel > 1 ? startLevel : this._progress.level));
+        this._camera = this.node.scene!.getChildByName('Main Camera')!.getComponent(Camera)!;
+        const orbit = this._camera.node.getComponent(DebugOrbitCamera); if (orbit) orbit.enabled = false;
+        this._camera.visibility &= ~(1 << 25);
+        this._camera.clearColor = new Color(29, 53, 68, 255);
+        this._camera.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+        const globals = this.node.scene!.globals;
+        globals.skybox.enabled = false;
+        globals.skybox.useIBL = false;
+        globals.ambient.skyColor = new Vec4(0.8, 0.84, 0.9, 1);
+        globals.ambient.groundAlbedo = new Vec4(0.45, 0.5, 0.55, 1);
+        view.on('canvas-resize', this._onResize, this);
+        const plane = this.node.scene!.getChildByName('Plane'); if (plane) plane.active = false;
+        this._ui = this.node.addComponent(GameUI);
+        this._ui.onRetry = () => { this._resume(); void this.load(this.level); };
+        this._ui.onNext = () => { this._resume(); void this.load(this.level < MAX_LEVEL ? this.level + 1 : 1); };
+        this._ui.onPause = () => this.togglePause();
+        this._ui.onSound = () => { this._progress.muted = !this._progress.muted; this._ui.setSound(this._progress.muted); this._save(); };
+        const root = this.node.scene!.getChildByName('LevelRoot') || new Node('LevelRoot'); root.parent = this.node.scene!; this._root = root;
+        this._decor = new Node('Arena'); this._decor.parent = this.node.scene!;
+        const cannonNode = new Node('Cannon'); cannonNode.parent = this.node.scene!; this._cannon = cannonNode.addComponent(CannonController);
+        this._cannon.canFire = () => this.phase === 'aiming' && !this._paused && this.ammo > 0;
+        this._cannon.onShot = () => { this.ammo--; this._shots++; this._combo = 0; this.phase = 'flying'; this._sound(110, 0.16); this._shake = 0.1; this._render(); };
+        this._cannon.onImpact = (point, hit, power) => this._impact(point, hit, power);
+        this._render();
+        try { await this._registry.init(); await this._cannon.setup(this._camera, this._ui); await this.load(this.level); }
+        catch (error) { this._fail(error); }
+    }
+
+    async load(level: number, stage = 0) {
+        if (this.phase === 'loading' && this._revision > 0) return;
+        const revision = ++this._revision;
+        this.phase = 'loading'; this._cannon.reset(); this._ui.hideModal();
+        for (const target of this._targets) if (isValid(target.node)) target.node.destroy(); this._targets = [];
+        for (const particle of this._particles) particle.node.destroy(); this._particles = [];
+        for (const node of [...this._decor.children]) node.destroy();
+        this.level = level; this.stage = stage;
+        if (stage === 0) { this.score = 0; this._shots = 0; this._levelBudget = 0; }
+        this.cleared = 0; this.total = 0; this._render();
+        try {
+            this._loaded = await new LevelLoader(this._registry).loadLevel(level, this._root, stage);
+            if (revision !== this._revision || !isValid(this.node)) return;
+            this._makeArena();
+            this._mechanics = new StageMechanics(this._loaded, stage, this._root);
+            for (const item of this._loaded.objects) {
+                const target = item.node.addComponent(Destructible);
+                target.setup(new Vec3(item.config.size.x, item.config.size.y, item.config.size.z), this._registry.getMass(item.config.type), item.config.type, item.floor, this._loaded.tables.get(item.config.tableId)?.node);
+                target.onRemoved = (object, center, chain) => this._removed(object, center, chain);
+                this._targets.push(target);
+            }
+            this.total = this._targets.length;
+            this.budget = ammoForStage(this.total, this._loaded.config.moveCount); this.ammo = this.budget; this._levelBudget += this.budget;
+            this._cannon.configure(this._loaded.bounds); this._frame();
+            this.phase = 'aiming'; this._ui.toast(stage === 0 ? '瞄准下层 · 引爆连锁' : '新的目标已就位'); this._render();
+        } catch (error) { this._fail(error); }
+    }
+
+    private _makeArena() {
+        const b = this._loaded!.bounds;
+        const x = (b.min.x + b.max.x) / 2, z = (b.min.z + b.max.z) / 2;
+        const width = Math.max(12, b.max.x - b.min.x + 7), depth = Math.max(15, b.max.z - b.min.z + 13);
+        const ground = shape(this._decor, 'Ground', 'box', '#3D6972', new Vec3(x, -0.35, z - 3), new Vec3(width, 0.6, depth));
+        const body = ground.addComponent(RigidBody); body.type = RigidBody.Type.STATIC; ground.addComponent(BoxCollider);
+        shape(this._decor, 'IslandBase', 'box', '#243F50', new Vec3(x, -0.85, z - 3), new Vec3(width + 0.4, 0.5, depth + 0.4));
+        for (const side of [-1, 1]) for (let i = 0; i < 8; i++) shape(this._decor, 'RangeMarker', 'box', '#B6C7A7', new Vec3(x + side * (width / 2 - 0.8), 0.01, z - 8 + i * 1.6), new Vec3(0.14, 0.025, 0.65));
+        for (let i = 0; i < 6; i++) {
+            const h = 0.5 + (i % 3) * 0.35;
+            shape(this._decor, 'BackdropCrate', 'box', i % 2 ? '#527C7C' : '#466772', new Vec3(x - width / 2 + i * width / 5, h / 2 - 0.05, z + depth / 2 - 4), new Vec3(1.1, h, 0.9));
+        }
+    }
+
+    private _frame() {
+        const b = this._loaded!.bounds;
+        const center = new Vec3((b.min.x + b.max.x) / 2, Math.max(1.2, (b.min.y + b.max.y) / 2 - 0.6), (b.min.z + b.max.z) / 2 - 3.1);
+        const radius = Math.max(6, (b.max.x - b.min.x) * 0.7, (b.max.y - b.min.y) * 0.85, (b.max.z - b.min.z) * 0.8);
+        const aspect = screen.windowSize.width / Math.max(1, screen.windowSize.height);
+        const distance = radius * (aspect < 1 ? 3.7 : 2.7);
+        this._cameraPosition.set(center.x + distance * 0.28, center.y + distance * 0.5, center.z - distance);
+        this._camera.node.setWorldPosition(this._cameraPosition); this._camera.node.lookAt(center);
+        this._camera.far = Math.max(100, distance * 3);
+    }
+    private _onResize() { if (this._loaded) this._frame(); }
+
+    private _impact(point: Vec3, hit: Node | null, power: number) {
+        this.phase = 'settling'; this._settling = 0;
+        const direct = hit?.getComponent(Destructible);
+        if (direct) direct.hit(point, 2, 0);
+        this._blast(point, 1.15 + power * 0.95, 0, direct || undefined);
+        this._burst(point, 15, '#FFB650'); this._shake = 0.22; this._sound(65, 0.22);
+        if (!direct) this._ui.toast(hit ? '冲击波已释放' : '差一点！试着调整落点');
+        this._render();
+    }
+
+    private _blast(center: Vec3, radius: number, chain: number, source?: Destructible) {
+        for (const target of this._targets) {
+            if (target === source || target.removed || target.pending || !isValid(target.node)) continue;
+            const offset = Vec3.subtract(new Vec3(), target.node.worldPosition, center); const distance = offset.length();
+            if (distance > radius + 0.2) continue;
+            const impulse = offset.normalize().multiplyScalar((1 - distance / (radius + 0.4)) * 9); impulse.y += 2;
+            target.body.applyImpulse(impulse);
+            if (distance < radius) target.hit(center, 1, chain + 1);
+        }
+    }
+
+    private _removed(target: Destructible, point: Vec3, chain: number) {
+        if (this.phase === 'loading' || this.phase === 'error') return;
+        this.cleared++; this._combo++; this.score += 100 + Math.min(this._combo - 1, 9) * 25;
+        this._settling = 0;
+        if (chain >= 0) {
+            this._burst(point, target.explosive ? 16 : 6, target.explosive ? '#FFCC68' : '#E97950');
+            if (chain < 2 || target.explosive && chain < 5) this._blast(point, target.explosive ? 2.8 : 1.25, chain, target);
+        }
+        if (this._combo >= 3) this._ui.toast(`${this._combo} 连爆  +${100 + Math.min(this._combo - 1, 9) * 25}`);
+        this._render();
+    }
+
+    private _burst(center: Vec3, count: number, color: string) {
+        for (let i = 0; i < count && this._particles.length < 120; i++) {
+            const size = 0.07 + Math.random() * 0.13;
+            const node = shape(this._decor, 'ExplosionFragment', 'box', i % 3 ? color : '#F7D9A1', new Vec3(), new Vec3(size, size, size)); node.setWorldPosition(center);
+            this._particles.push({ node, velocity: new Vec3((Math.random() - 0.5) * 7, 2 + Math.random() * 5, (Math.random() - 0.5) * 7), age: 0, life: 0.5 + Math.random() * 0.65, size });
+        }
+    }
+
+    update(dt: number) {
+        if (this._paused || !this._loaded) return;
+        dt = Math.min(dt, 0.05);
+        if (this.phase === 'loading' || this.phase === 'error') return;
+        this._mechanics?.step(dt);
+        for (let i = this._particles.length - 1; i >= 0; i--) {
+            const p = this._particles[i]; p.age += dt;
+            if (p.age > p.life) { p.node.destroy(); this._particles.splice(i, 1); continue; }
+            p.velocity.y -= 10 * dt; p.node.setWorldPosition(Vec3.scaleAndAdd(new Vec3(), p.node.worldPosition, p.velocity, dt));
+            p.node.setRotationFromEuler(p.age * 180, p.age * 250, 0); p.node.setScale(Vec3.ONE.clone().multiplyScalar(p.size * (1 - p.age / p.life)));
+        }
+        this._shake = Math.max(0, this._shake - dt);
+        this._camera.node.setWorldPosition(this._cameraPosition.x + (Math.random() - 0.5) * this._shake, this._cameraPosition.y + (Math.random() - 0.5) * this._shake, this._cameraPosition.z);
+        if (this.phase === 'settling' || this.phase === 'aiming' && this.cleared >= this.total) {
+            this._settling += dt;
+            if (this._settling > 1.15) {
+                if (this.cleared >= this.total) {
+                    if (this.stage + 1 < this._loaded.config.stages.length) void this.load(this.level, this.stage + 1);
+                    else this._win();
+                } else if (this.ammo <= 0) { this.phase = 'lost'; this._ui.showModal('lost', 0, `已摧毁 ${this.cleared} / ${this.total} 个目标 · 得分 ${this.score}`); }
+                else { this.phase = 'aiming'; this._render(); }
+            }
+        }
+    }
+
+    private _win() {
+        this.phase = 'won'; this.score += this.ammo * 150;
+        const stars = starsForWin(this._shots, this._levelBudget);
+        this._progress.scores[String(this.level)] = Math.max(this.score, this._progress.scores[String(this.level)] || 0);
+        this._progress.stars[String(this.level)] = Math.max(stars, this._progress.stars[String(this.level)] || 0);
+        this._progress.level = Math.max(this._progress.level, Math.min(MAX_LEVEL, this.level + 1)); this._save();
+        this._ui.showModal('won', stars, `得分 ${this.score}  ·  使用 ${this._shots} 发炮弹  ·  余弹奖励 +${this.ammo * 150}`); this._render(); this._sound(520, 0.25);
+    }
+
+    togglePause() {
+        if (['loading', 'won', 'lost', 'error'].includes(this.phase)) return;
+        this._paused = !this._paused; this._cannon.paused = this._paused; this._cannon.cancel(); PhysicsSystem.instance.enable = !this._paused;
+        for (const target of this._targets) target.paused = this._paused;
+        if (this._paused) this._ui.showModal('paused', 0, '放松一下，回来再炸个痛快。'); else this._ui.hideModal();
+    }
+    private _resume() { this._paused = false; if (this._cannon) this._cannon.paused = false; PhysicsSystem.instance.enable = true; }
+    private _render() { this._ui?.render({ level: this.level, stage: this.stage, stages: this._loaded?.config.stages.length || 1, ammo: this.ammo, budget: this.budget, cleared: this.cleared, total: this.total, score: this.score, best: this._progress.scores[String(this.level)] || 0, phase: this.phase }); }
+    private _save() { try { sys.localStorage.setItem('cannon-progress-v1', JSON.stringify(this._progress)); } catch {} }
+    private _fail(error: unknown) { console.error('[CannonGame]', error); this.phase = 'error'; this._ui.showModal('error', 0, '请点击重新挑战，重新装载关卡资源。'); }
+    private _sound(frequency: number, duration: number) {
+        if (this._progress.muted || typeof AudioContext === 'undefined') return;
+        try {
+            if (!this._audio) this._audio = new AudioContext(); void this._audio.resume();
+            const oscillator = this._audio.createOscillator(), gain = this._audio.createGain(), now = this._audio.currentTime;
+            oscillator.type = 'triangle'; oscillator.frequency.setValueAtTime(frequency, now); oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.35, now + duration);
+            gain.gain.setValueAtTime(0.16, now); gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+            oscillator.connect(gain); gain.connect(this._audio.destination); oscillator.start(now); oscillator.stop(now + duration);
+        } catch { /* Audio is optional on unsupported platforms. */ }
+    }
+    onDestroy() { this._revision++; view.off('canvas-resize', this._onResize, this); this._resume(); this._audio?.close(); for (const target of this._targets) if (isValid(target.node)) target.node.destroy(); this._cannon?.node.destroy(); this._decor?.destroy(); }
+}

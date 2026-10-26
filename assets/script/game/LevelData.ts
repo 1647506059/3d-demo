@@ -49,7 +49,13 @@ export interface TableConfig {
 export interface StageConfig {
     objects: ObjectConfig[];
     tables: TableConfig[];
-    blockers: unknown[];
+    blockers: BlockerConfig[];
+}
+
+export interface BlockerConfig {
+    width: number; initZ: number; startNormalized: number;
+    minPos: { x: number; y: number }; maxPos: { x: number; y: number };
+    posHalfCycleDuration: number; initRotEuler: number; rotInSecEuler: number;
 }
 
 /** 完整关卡配置 */
