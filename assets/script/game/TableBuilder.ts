@@ -31,7 +31,7 @@ export class TableBuilder {
             const pole = await MeshLoader.instantiate('TablePole', root);
             pole.setPosition(0, -poleH * 0.5, 0);
             pole.setScale(0.6, poleH / 1.678, 0.6);
-            paint(pole, '#385A68');
+            paint(pole, '#577681', { kind: 'steel' });
         } catch (e) {
             console.warn('[TableBuilder] TablePole 加载失败', e);
         }
@@ -40,12 +40,14 @@ export class TableBuilder {
             const top = await MeshLoader.instantiate('TableTop', root);
             top.setPosition(cx, 0, cz);
             top.setScale(topW, 1, topD);
-            paint(top, '#6EB6B6');
+            // This mesh occupies a small patch of its original atlas; expand it to one wood tile.
+            const uvSpan = 0.1225065;
+            paint(top, '#E6D6BB', { kind: 'wood', tiling: [1 / uvSpan, 1 / uvSpan], offset: [-0.3940154 / uvSpan, -0.5243199 / uvSpan] });
         } catch (e) {
             console.warn('[TableBuilder] TableTop 加载失败', e);
         }
 
-        shape(root, 'PlatformSlab', 'box', '#477E87', new Vec3(cx, -0.14, cz), new Vec3(topW + 0.3, 0.28, topD + 0.3));
+        shape(root, 'PlatformSlab', 'box', '#69898C', new Vec3(cx, -0.14, cz), new Vec3(topW + 0.3, 0.28, topD + 0.3), false, false, { kind: 'steel' });
         const body = root.addComponent(RigidBody);
         body.type = RigidBody.Type.STATIC;
         const collider = root.addComponent(BoxCollider);

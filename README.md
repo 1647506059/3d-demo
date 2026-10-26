@@ -26,6 +26,7 @@
 - 金色炸药桶具有更大的爆炸范围，石头需要更高伤害。连爆和剩余炮弹提供额外得分。
 - 弹药预算随目标数量变化；关卡中的旋转平台、移动平台和移动挡板由原有 JSON 配置驱动。
 - 模型来自 `assets/mesh` 分包，关卡来自 `assets/resources/prod-13-json`，不依赖运行时远程服务。
+- 场景使用内置 `image_gen` 生成的四类贴图：混凝土地面、漆面金属磨损、黄铜炮体和木板。资源保存在 `assets/resources/textures`，完整生成提示词保存在 `tools/scene-texture-prompts.json`。平台、炮架、箱体和不同目标按材质复用贴图，保持油桶共享材质和实例化渲染；贴图启用平铺、多级采样和各向异性过滤。
 - 重复模型共享实例化材质，主要物体保留单级阴影；装饰、弹道点和碎片不额外投影。相机与弹道按变化更新，连爆合并同帧 HUD 重绘，碎片使用对象池并限制为最多 80 个，保留油桶翻滚、烟尘与冲击波。
 
 ## Pink 开发流程
@@ -65,10 +66,13 @@ node tools/test-game-performance.cjs '<当前 Pink 返回的预览 URL>' './temp
 node tools/test-game-rapid-fire.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-mount.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-fall-progress.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
+node tools/test-game-textures.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 ```
 
 视野限制回归覆盖重复滚轮、左右环视与平移、真实触屏缩放、GM 面板开关、越界镜头收回、暂停输入隔离及面板横竖屏切换。
 
 掉落进度回归覆盖矮平台的真实物理击落、高桶落地、仍躺在板上的桶、旋转/缩放/移动承托平台、重复计数保护，以及最后一个目标掉落后的通关结算。
+
+贴图回归检查四类资源与表面的对应、GPU 多级采样、台面 UV 重映射、油桶材质共享、实例化渲染，以及资源和着色器错误。
 
 回归覆盖暂停/继续、真实鼠标瞄准和开炮、单发扣弹、碰撞与连爆、通关、下一关、重试、最后一发失败，以及横竖屏切换。表现回归额外检查炮口后方镜头、瞄准时镜头稳定、直接命中最后一个目标时的无弹窗展示，以及展示暂停和延迟结算。视角回归覆盖右键环视、中键平移、滚轮缩放、V/菜单回正、暂停与屏幕旋转，以及真实双指操作和开炮的互斥。连续射击回归覆盖多弹并行与独立瞄准、暂停全部炮弹、命中时继续蓄力、重试清空在途炮弹，以及最后一枚炮弹结束后的胜负结算。炮架回归从 GLB 几何提取耳轴座与炮口位置，验证炮架放平、四轮贴合底座，检查转向、俯仰、后坐和复位时的连接，并确认炮弹与火光从可见炮口发出。验证截图和结果保存在 `temp/codex-cannon/`，不进入版本库。

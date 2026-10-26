@@ -4,7 +4,7 @@ import { GameUI } from '../ui/GameUI';
 import { CannonController } from './CannonController';
 import { Destructible } from './Destructible';
 import { ammoForStage, canResolveShot, MAX_LEVEL, starsForWin } from './GameRules';
-import { shape } from './GameVisuals';
+import { loadSurfaceTextures, shape } from './GameVisuals';
 import { LevelLoader, LevelLoadResult } from './LevelLoader';
 import { ObjectTypeRegistry } from './ObjectTypeRegistry';
 import { StageMechanics } from './StageMechanics';
@@ -106,7 +106,7 @@ export class GameManager extends Component {
         this._cannon.onShot = () => { this.ammo--; this._shots++; this._combo = 0; this.phase = 'flying'; this._settling = 0; this._impactElapsed = 0; this._sound(110, 0.16); this._shake = 0.1; this._render(); };
         this._cannon.onImpact = (point, hit, power) => this._impact(point, hit, power);
         this._render();
-        try { await this._registry.init(); await this._cannon.setup(this._camera, this._ui); await this.load(this.level); }
+        try { await Promise.all([this._registry.init(), loadSurfaceTextures()]); await this._cannon.setup(this._camera, this._ui); await this.load(this.level); }
         catch (error) { this._fail(error); }
     }
 
@@ -148,14 +148,14 @@ export class GameManager extends Component {
         const front = cannon.z - 2.2, back = Math.max(b.max.z + 3, cannon.z + 12);
         const z = (front + back) / 2;
         const width = Math.max(12, b.max.x - b.min.x + 7), depth = back - front;
-        const ground = shape(this._decor, 'Ground', 'box', '#3D6972', new Vec3(x, -0.3, z), new Vec3(width, 0.6, depth));
+        const ground = shape(this._decor, 'Ground', 'box', '#7E9696', new Vec3(x, -0.3, z), new Vec3(width, 0.6, depth), false, false, { kind: 'concrete', tiling: [Math.max(1, Math.round(width / 3)), Math.max(1, Math.round(depth / 3))] });
         const body = ground.addComponent(RigidBody); body.type = RigidBody.Type.STATIC; ground.addComponent(BoxCollider);
-        shape(this._decor, 'IslandBase', 'box', '#243F50', new Vec3(x, -0.85, z), new Vec3(width + 0.4, 0.5, depth + 0.4));
+        shape(this._decor, 'IslandBase', 'box', '#52646A', new Vec3(x, -0.85, z), new Vec3(width + 0.4, 0.5, depth + 0.4), false, false, { kind: 'concrete', tiling: [4, 1] });
         for (const side of [-1, 1]) for (let i = 0; i < 8; i++) shape(this._decor, 'RangeMarker', 'box', '#B6C7A7', new Vec3(x + side * (width / 2 - 0.8), 0.0125, front + 0.8 + i * (depth - 1.6) / 7), new Vec3(0.14, 0.025, 0.65));
         shape(this._decor, 'FiringLine', 'box', '#B6C7A7', new Vec3(cannon.x, 0.0125, cannon.z + 1.9), new Vec3(4.4, 0.025, 0.12));
         for (let i = 0; i < 6; i++) {
             const h = 0.5 + (i % 3) * 0.35;
-            shape(this._decor, 'BackdropCrate', 'box', i % 2 ? '#527C7C' : '#466772', new Vec3(x - width / 2 + 1 + i * (width - 2) / 5, h / 2, back - 0.9), new Vec3(1.1, h, 0.9));
+            shape(this._decor, 'BackdropCrate', 'box', i % 2 ? '#D5C4AA' : '#BCA88A', new Vec3(x - width / 2 + 1 + i * (width - 2) / 5, h / 2, back - 0.9), new Vec3(1.1, h, 0.9), false, false, { kind: 'wood' });
         }
     }
 

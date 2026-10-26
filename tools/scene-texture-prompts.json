@@ -1,0 +1,21 @@
+{
+  "generator": "built-in image_gen",
+  "textures": [
+    {
+      "file": "assets/resources/textures/range-concrete.png",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square 1024x1024 game base-color texture, not a rendered material ball. Generate an original hand-painted stylized concrete training-range surface. Orthographic flat top-down texture filling the entire canvas edge to edge. Light cool neutral gray concrete, subtle broad trowel marks, fine aggregate, a few very small worn pits and restrained hairline cracks; low contrast, readable from a distant 3D game camera. Even neutral albedo lighting, no directional shadows or baked highlights. Perfectly tileable on all four edges. No perspective, objects, borders, text, road lines, large slab seams, logos, or watermark. Opaque."
+    },
+    {
+      "file": "assets/resources/textures/painted-metal-wear.png",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square 1024x1024 game base-color detail texture to be color-tinted on oil barrels and painted steel. Generate an original restrained hand-painted pale neutral-gray enamel-coated metal surface, mostly light gray with subtle off-white worn patches, fine scuffs, tiny charcoal paint chips, very sparse muted gray-brown oxidized flecks. Surface should remain 85 percent intact paint, soft low contrast, medium-scale wear visible in a stylized cannon game, not gritty photorealistic noise. Flat orthographic uniform albedo map filling the full canvas. Seamless in both directions. No recognizable barrel shape, rings, stripes, labels, lettering, logos, lighting gradients, cast shadows, borders or watermark. Opaque."
+    },
+    {
+      "file": "assets/resources/textures/aged-brass.png",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square 1024x1024 game base-color texture for a stylized brass cannon barrel. Original softly hand-painted pale champagne brass metal, subtle brushed grain, faint warm tarnish clouds, a few delicate darker scuff marks, clean readable broad color masses. Light golden-beige palette, low contrast, no strong specular highlights because the game provides lighting. Flat orthographic albedo surface edge to edge, seamless repeating in both directions. No objects, cannon silhouettes, lettering, ornate patterns, bolts, borders, vignette, cast shadows, or watermark. Opaque."
+    },
+    {
+      "file": "assets/resources/textures/weathered-planks.png",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square 1024x1024 game base-color texture for wooden target platforms and crates. Original hand-painted stylized weathered oak boards, four broad parallel planks running vertically edge to edge, warm muted honey and tan wood, simple flowing grain and a few understated knots, narrow dark joints, soft scuffed patches, moderate readable grain without visual clutter. Flat top-down orthographic texture with uniform diffuse albedo lighting; seamless on every edge including matching plank spacing. No perspective, end frames, crate silhouettes, nails, text, labels, logos, baked shadows or watermark. Opaque."
+    }
+  ]
+}

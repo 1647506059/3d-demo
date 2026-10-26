@@ -55,9 +55,9 @@ export class CannonController extends Component {
         this._barrel = new Node('CannonAim'); this._barrel.parent = this._yaw; this._barrel.setPosition(0, standY + STAND_TRUNNION_Z * MODEL_SCALE, 0);
         const base = await MeshLoader.instantiate('CannonBottom', this._yaw);
         base.setScale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); base.setRotationFromEuler(-90, 0, 0);
-        base.setPosition(-STAND_TRUNNION_X * MODEL_SCALE, standY, STAND_TRUNNION_Y * MODEL_SCALE); paint(base, '#344D62');
-        this._visual = await MeshLoader.instantiate('CannonBody', this._barrel); this._visual.setScale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); this._visual.setPosition(0, -BARREL_AXIS_Y * MODEL_SCALE, BARREL_REST_Z); paint(this._visual, '#FFB74E');
-        shape(this.node, 'CannonPlinth', 'cylinder', '#294958', new Vec3(0, 0.125, 0), new Vec3(2.2, 0.25, 2.2));
+        base.setPosition(-STAND_TRUNNION_X * MODEL_SCALE, standY, STAND_TRUNNION_Y * MODEL_SCALE); paint(base, '#607887', { kind: 'steel' });
+        this._visual = await MeshLoader.instantiate('CannonBody', this._barrel); this._visual.setScale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); this._visual.setPosition(0, -BARREL_AXIS_Y * MODEL_SCALE, BARREL_REST_Z); paint(this._visual, '#FFF3D5', { kind: 'brass' });
+        shape(this.node, 'CannonPlinth', 'cylinder', '#697D84', new Vec3(0, 0.125, 0), new Vec3(2.2, 0.25, 2.2), false, false, { kind: 'concrete' });
         for (let i = 0; i < 22; i++) { const dot = shape(this.node.scene!, 'TrajectoryDot', 'sphere', i === 21 ? '#FFBD59' : '#BCE8DD', new Vec3(), new Vec3(0.07, 0.07, 0.07)); this._dots.push(dot); }
         ui.onAimStart = e => { if (!this.canAim() || !this.canFire() || this.paused || !ui.isGameplayScreenPoint(e.getLocationX(), e.getLocationY())) return; this.aimAtScreen(e.getLocationX(), e.getLocationY()); this.beginCharge(); };
         ui.onAimMove = e => { if (this.canAim() && this._charging && ui.isGameplayScreenPoint(e.getLocationX(), e.getLocationY())) this.aimAtScreen(e.getLocationX(), e.getLocationY()); };
