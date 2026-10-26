@@ -86,6 +86,13 @@ export class GameManager extends Component {
         this._playerCamera.canControl = () => !this._paused && this._canControlView;
         this._ui.onView = () => this._playerCamera.toggleViewMode();
         this._ui.onResetView = () => this._playerCamera.reset();
+        this._ui.onGMOpen = () => { if (this._paused) this._showGMPanel(); };
+        this._ui.onGMBack = () => { if (this._paused) this._ui.showModal('paused'); };
+        this._ui.onGMToggleLimits = () => {
+            if (!this._paused || !this._ui.isGMPanelOpen) return;
+            this._playerCamera.setGMUnlocked(!this._playerCamera.gmUnlocked);
+            this._showGMPanel();
+        };
         this._ui.onRetry = () => { this._resume(); void this.load(this.level); };
         this._ui.onNext = () => { this._resume(); void this.load(this.level < MAX_LEVEL ? this.level + 1 : 1); };
         this._ui.onPause = () => this.togglePause();
@@ -169,7 +176,7 @@ export class GameManager extends Component {
         this._cameraPosition.set(cannon.x - forward.x * behind + right.x * 0.55, this._cannon.mountPosition.y + 1.8, cannon.z - forward.z * behind + right.z * 0.55);
         this._playerCamera.setHome(this._cameraPosition, center, preserveView);
         this._camera.near = 0.1;
-        this._camera.far = Math.max(100, range * 3);
+        this._playerCamera.setClipDistance(Math.max(100, range * 3));
     }
     private _onResize() { if (this._loaded) this._frame(true); }
 
@@ -303,6 +310,7 @@ export class GameManager extends Component {
         if (this._paused) this._ui.showModal('paused', 0, '放松一下，回来再炸个痛快。'); else this._ui.hideModal();
     }
     private _resume() { this._paused = false; if (this._cannon) this._cannon.paused = false; PhysicsSystem.instance.enable = true; }
+    private _showGMPanel() { this._ui.showGMPanel(this._playerCamera.gmUnlocked, this._playerCamera.limitDescription); }
     private _render() { this._hudDirty = true; }
     lateUpdate() {
         if (!this._hudDirty || !this._ui) return;

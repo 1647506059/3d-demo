@@ -17,6 +17,8 @@
 
 玩家相机默认位于炮口后方，以越肩视角瞄准；炮台缩小并位于画面下沿，给目标留出视野。左键拖动瞄准，右键拖动环视，中键拖动平移，滚轮缩放；按 V 或使用暂停菜单的「回正视角」可恢复炮后视角。右上角「视角」按钮可切换单指/左键环视模式；触屏也可用双指拖动环视、捏合缩放，相机手势不会消耗炮弹。命中后保留油桶翻滚、碎片、烟尘和冲击波；结算会等待全部在途炮弹结束，最后一次命中至少展示 4 秒，并在最后一次连锁反应结束后保留至少 2.8 秒，再弹出结算。暂停期间不会消耗展示时间。
 
+普通视野限制为默认镜头距离的 80%–125%、左右环视各 25°，俯仰和横向/纵向平移也有边界，鼠标和触屏共用限制。通过「暂停 → GM 面板 → 解除视野限制」可开启自由视角；普通视角按钮、V 回正和屏幕旋转不会解除限制。GM 面板中的「恢复视野限制」会立即收回超出范围的镜头，「回正视角」可恢复默认位置。GM 开关只影响本次运行，不写入存档，刷新游戏后默认恢复限制。
+
 ## 玩法与资源
 
 - 炮弹采用重力弹道和逐帧射线检测，避免高速飞行穿透目标；虚线预览与发射使用同一套弹道公式。
@@ -58,9 +60,12 @@ $env:CANNON_CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 node tools/test-game-preview.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-presentation.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-camera.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
+node tools/test-game-camera-limits.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-performance.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-rapid-fire.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-mount.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 ```
+
+视野限制回归覆盖重复滚轮、左右环视与平移、真实触屏缩放、GM 面板开关、越界镜头收回、暂停输入隔离及面板横竖屏切换。
 
 回归覆盖暂停/继续、真实鼠标瞄准和开炮、单发扣弹、碰撞与连爆、通关、下一关、重试、最后一发失败，以及横竖屏切换。表现回归额外检查炮口后方镜头、瞄准时镜头稳定、直接命中最后一个目标时的无弹窗展示，以及展示暂停和延迟结算。视角回归覆盖右键环视、中键平移、滚轮缩放、V/菜单回正、暂停与屏幕旋转，以及真实双指操作和开炮的互斥。连续射击回归覆盖多弹并行与独立瞄准、暂停全部炮弹、命中时继续蓄力、重试清空在途炮弹，以及最后一枚炮弹结束后的胜负结算。炮架回归从 GLB 几何提取横轴与炮口位置，检查转向、俯仰、后坐和复位时的连接，并确认炮弹与火光从可见炮口发出。验证截图和结果保存在 `temp/codex-cannon/`，不进入版本库。

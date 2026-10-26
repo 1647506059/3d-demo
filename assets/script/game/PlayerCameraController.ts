@@ -1,6 +1,8 @@
-import { _decorator, Component, EventKeyboard, EventMouse, EventTouch, game, input, Input, KeyCode, Vec2, Vec3 } from 'cc';
+import { _decorator, Camera, Component, EventKeyboard, EventMouse, EventTouch, game, input, Input, KeyCode, Vec2, Vec3 } from 'cc';
 import { GameUI } from '../ui/GameUI';
 const { ccclass } = _decorator;
+const VIEW_LIMITS = { minZoom: 0.8, maxZoom: 1.25, yaw: 25 * Math.PI / 180, pitchDown: 8 * Math.PI / 180, pitchUp: 20 * Math.PI / 180 };
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 /** Owns the player camera transform; aiming and view gestures use separate inputs. */
 @ccclass('PlayerCameraController')
@@ -14,6 +16,10 @@ export class PlayerCameraController extends Component {
     private _pivot = new Vec3();
     private _radius = 10;
     private _homeRadius = 10;
+    private _homeYaw = 0;
+    private _homePitch = 0;
+    private _homeFar = 100;
+    private _gmUnlocked = false;
     private _yaw = 0;
     private _pitch = 0;
     private _configured = false;
@@ -33,6 +39,21 @@ export class PlayerCameraController extends Component {
 
     get nonPrimaryPointer(): boolean { return this._pointerButton !== EventMouse.BUTTON_LEFT; }
     get interacting(): boolean { return this.nonPrimaryPointer || this._mouseMode !== null || (this.viewMode || this._multiTouch) && this._touches.size > 0; }
+    get gmUnlocked(): boolean { return this._gmUnlocked; }
+    get limitDescription(): string { return `缩放 ${VIEW_LIMITS.minZoom * 100}%–${VIEW_LIMITS.maxZoom * 100}% · 左右环视 ±${Math.round(VIEW_LIMITS.yaw * 180 / Math.PI)}°`; }
+
+    setGMUnlocked(enabled: boolean) {
+        this.cancelInteraction();
+        if (this._gmUnlocked && !enabled) this._yaw = this._homeYaw + Math.atan2(Math.sin(this._yaw - this._homeYaw), Math.cos(this._yaw - this._homeYaw));
+        this._gmUnlocked = enabled;
+        this.setClipDistance(this._homeFar);
+        if (this._configured) this._apply();
+    }
+    setClipDistance(distance: number) {
+        this._homeFar = distance;
+        const camera = this.getComponent(Camera);
+        if (camera) camera.far = this._gmUnlocked ? Math.max(2000, distance) : distance;
+    }
 
     onEnable() {
         input.on(Input.EventType.MOUSE_DOWN, this._mouseDown, this);
@@ -60,8 +81,9 @@ export class PlayerCameraController extends Component {
 
     setHome(position: Vec3, focus: Vec3, preserveView = false) {
         this._homePosition.set(position); this._homeFocus.set(focus);
-        this._homeRadius = Vec3.distance(position, focus);
-        if (preserveView && this._configured && this._manual) return;
+        const offset = Vec3.subtract(new Vec3(), position, focus);
+        this._homeRadius = offset.length(); this._homeYaw = Math.atan2(offset.x, offset.z); this._homePitch = Math.asin(offset.y / this._homeRadius);
+        if (preserveView && this._configured && this._manual) { this._apply(); return; }
         this._configured = true; this.reset();
     }
     reset() {
@@ -82,6 +104,7 @@ export class PlayerCameraController extends Component {
     setShake(value: number) { if (this._shake !== value) { this._shake = value; this._poseDirty = true; } }
     lateUpdate() { if (this._configured && (this._poseDirty || this._shake > 0 || this._appliedShake > 0)) this._apply(); }
     private _apply() {
+        this._constrain();
         const horizontal = this._radius * Math.cos(this._pitch);
         this.node.setWorldPosition(this._pivot.x + Math.sin(this._yaw) * horizontal + (Math.random() - 0.5) * this._shake,
             Math.max(0.45, this._pivot.y + Math.sin(this._pitch) * this._radius) + (Math.random() - 0.5) * this._shake,
@@ -89,20 +112,36 @@ export class PlayerCameraController extends Component {
         this.node.lookAt(this._pivot);
         this._poseDirty = false; this._appliedShake = this._shake;
     }
+    private _constrain() {
+        // GM removes gameplay bounds; retain finite distances and avoid a vertical lookAt singularity.
+        if (this._gmUnlocked) {
+            this._radius = clamp(this._radius, 0.5, 1000);
+            this._pitch = clamp(this._pitch, -Math.PI * 0.49, Math.PI * 0.49);
+            return;
+        }
+        this._radius = clamp(this._radius, this._homeRadius * VIEW_LIMITS.minZoom, this._homeRadius * VIEW_LIMITS.maxZoom);
+        this._yaw = clamp(this._yaw, this._homeYaw - VIEW_LIMITS.yaw, this._homeYaw + VIEW_LIMITS.yaw);
+        this._pitch = clamp(this._pitch, this._homePitch - VIEW_LIMITS.pitchDown, this._homePitch + VIEW_LIMITS.pitchUp);
+        const dx = this._pivot.x - this._homeFocus.x, dz = this._pivot.z - this._homeFocus.z;
+        const sin = Math.sin(this._homeYaw), cos = Math.cos(this._homeYaw);
+        const sideMax = Math.min(2, this._homeRadius * 0.12), depthMax = Math.min(1, this._homeRadius * 0.06), upMax = Math.min(1.2, this._homeRadius * 0.08);
+        const side = clamp(dx * cos - dz * sin, -sideMax, sideMax), depth = clamp(dx * sin + dz * cos, -depthMax, depthMax);
+        this._pivot.set(this._homeFocus.x + side * cos + depth * sin,
+            clamp(this._pivot.y, Math.max(0.5, this._homeFocus.y - upMax), this._homeFocus.y + upMax),
+            this._homeFocus.z - side * sin + depth * cos);
+    }
     private _rotate(dx: number, dy: number) {
         this._manual = true; this._yaw -= dx * 0.0045;
-        this._pitch = Math.max(-Math.PI / 9, Math.min(Math.PI * 0.43, this._pitch - dy * 0.0045));
+        this._pitch -= dy * 0.0045;
         this._apply();
     }
-    private _zoom(factor: number) { this._manual = true; this._radius = Math.max(Math.max(2, this._homeRadius * 0.35), Math.min(this._homeRadius * 3, this._radius * factor)); this._apply(); }
+    private _zoom(factor: number) { this._manual = true; this._radius *= factor; this._apply(); }
     private _pan(dx: number, dy: number) {
         this._manual = true;
         const scale = this._radius * 0.0015;
         const right = Vec3.transformQuat(new Vec3(), Vec3.RIGHT, this.node.worldRotation).multiplyScalar(-dx * scale);
         const up = Vec3.transformQuat(new Vec3(), Vec3.UP, this.node.worldRotation).multiplyScalar(-dy * scale);
         this._pivot.add(right).add(up); this._pivot.y = Math.max(0.5, this._pivot.y);
-        const offset = Vec3.subtract(new Vec3(), this._pivot, this._homeFocus);
-        if (offset.length() > this._homeRadius) this._pivot.set(this._homeFocus).add(offset.normalize().multiplyScalar(this._homeRadius));
         this._apply();
     }
     private _allowed(x: number, y: number) { return this._configured && this.canControl() && this.ui.isGameplayScreenPoint(x, y); }

@@ -1,6 +1,7 @@
 import { _decorator, Camera, Canvas, Color, Component, EventTouch, Graphics, Label, Layers, Node, ResolutionPolicy, UIOpacity, UITransform, Vec3, view, screen } from 'cc';
 const { ccclass } = _decorator;
 const C = { ink: '#F4F0E8', muted: '#95ADB8', panel: '#192F3D', line: '#365160', gold: '#FFBD59', teal: '#72DBCA' };
+type ModalKind = 'won' | 'lost' | 'paused' | 'error' | 'gm';
 
 export interface HUDState {
     level: number; stage: number; stages: number; ammo: number; budget: number;
@@ -24,6 +25,9 @@ export class GameUI extends Component {
     onSound: (() => void) | null = null;
     onView: (() => void) | null = null;
     onResetView: (() => void) | null = null;
+    onGMOpen: (() => void) | null = null;
+    onGMBack: (() => void) | null = null;
+    onGMToggleLimits: (() => void) | null = null;
     canUseButtons: () => boolean = () => true;
     private _root!: Node;
     private _labels = new Map<string, Label>();
@@ -45,17 +49,20 @@ export class GameUI extends Component {
     private _modalKind = '';
     private _modalStars = 0;
     private _modalDetail = '';
+    private _gmUnlocked = false;
+    private _gmLimitDescription = '';
     private _uiCamera!: Camera;
     private _reticle!: Node;
     private _layoutVersion = 0;
     get layoutVersion(): number { return this._layoutVersion; }
+    get isGMPanelOpen(): boolean { return this._modalKind === 'gm' && this._modal.active; }
 
     onLoad() { this._build(); view.on('canvas-resize', this._resize, this); }
     onDestroy() { view.off('canvas-resize', this._resize, this); this._root?.destroy(); }
     private _resize() {
         const kind = this._modalKind, stars = this._modalStars, detail = this._modalDetail;
         this._build(); if (this._state) this.render(this._state);
-        if (kind) this.showModal(kind as 'won' | 'lost' | 'paused' | 'error', stars, detail);
+        if (kind) this.showModal(kind as ModalKind, stars, detail);
     }
 
     private _build() {
@@ -162,14 +169,29 @@ export class GameUI extends Component {
         if (this._hintTime > 0) { this._hintTime = Math.max(0, this._hintTime - dt); this._hintOpacity.opacity = Math.min(1, this._hintTime / 1.2) * 255; if (this._hintTime <= 0) this._text('Hint', ''); }
     }
 
-    showModal(kind: 'won' | 'lost' | 'paused' | 'error', stars = 0, detail = '') {
+    showGMPanel(unlocked: boolean, description: string) {
+        this._gmUnlocked = unlocked; this._gmLimitDescription = description; this.showModal('gm');
+    }
+    showModal(kind: ModalKind, stars = 0, detail = '') {
         this._modalKind = kind; this._modalStars = stars; this._modalDetail = detail; this._modal.active = true;
         for (const child of [...this._modal.children]) child.destroy();
         const shade = this._modal.getComponent(Graphics) || this._modal.addComponent(Graphics); shade.clear();
         shade.fillColor = new Color(6, 19, 29, 210); shade.rect(-this._w / 2, -this._h / 2, this._w, this._h); shade.fill();
         this._modal.off(Node.EventType.TOUCH_START);
         this._modal.on(Node.EventType.TOUCH_START, (e: EventTouch) => { e.propagationStopped = true; });
-        this._panel(this._modal, 'ResultCard', 0, 0, Math.min(this._w - 70, 520), 390, C.panel);
+        const cardWidth = Math.min(this._w - 70, 520);
+        this._panel(this._modal, 'ResultCard', 0, 0, cardWidth, kind === 'gm' ? 430 : 390, C.panel);
+        if (kind === 'gm') {
+            this._label(this._modal, 'GMEyebrow', 'CAMERA / GM', 0, 170, cardWidth - 30, 16, C.gold);
+            this._label(this._modal, 'GMTitle', 'GM 视野设置', 0, 128, cardWidth - 30, 30, C.ink, true);
+            this._label(this._modal, 'GMState', this._gmUnlocked ? '自由视角已开启' : '视野限制已开启', 0, 75, cardWidth - 30, 22, this._gmUnlocked ? C.gold : C.teal, true);
+            this._label(this._modal, 'GMLimits', `普通模式：${this._gmLimitDescription}`, 0, 30, cardWidth - 30, 16, C.muted);
+            this._label(this._modal, 'GMHelp', this._gmUnlocked ? '已解除玩家范围限制，可自由调试镜头' : '平移与俯仰同样受限，仅此面板可解除', 0, 0, cardWidth - 30, 16, C.muted);
+            this._button(this._modal, 'GMToggleLimits', this._gmUnlocked ? '恢复视野限制' : '解除视野限制', 0, -60, Math.min(320, cardWidth - 40), 54, C.gold, () => this.onGMToggleLimits?.());
+            this._button(this._modal, 'GMResetView', '回正视角', 0, -120, Math.min(320, cardWidth - 40), 38, C.line, () => this.onResetView?.());
+            this._button(this._modal, 'GMBack', '返回暂停菜单', 0, -170, Math.min(320, cardWidth - 40), 32, C.line, () => this.onGMBack?.());
+            return;
+        }
         const title = { won: '爆破成功', lost: '再来一发，扭转战局', paused: '稍作休整', error: '靶场加载失败' }[kind];
         this._label(this._modal, 'ResultEyebrow', kind === 'won' ? 'MISSION COMPLETE' : kind === 'paused' ? 'TAKE A BREAK' : 'CANNON / RETRY', 0, 145, 430, 16, C.gold);
         this._label(this._modal, 'ResultTitle', title, 0, 100, 460, 32, C.ink, true);
@@ -177,8 +199,10 @@ export class GameUI extends Component {
         this._label(this._modal, 'ResultDetail', kind === 'paused' ? `关卡最佳 ${this._state?.best || 0} 分` : detail, 0, -30, 440, 18, C.muted);
         this._button(this._modal, 'Continue', kind === 'won' ? '下一关  →' : kind === 'paused' ? '继续战斗' : '重新挑战', 0, -100, 320, 60, C.gold, () => kind === 'won' ? this.onNext?.() : kind === 'paused' ? this.onPause?.() : this.onRetry?.());
         if (kind === 'paused') {
-            this._button(this._modal, 'Sound', '音效开关', -90, -158, 150, 32, C.line, () => this.onSound?.());
-            this._button(this._modal, 'ResetView', '回正视角', 90, -158, 150, 32, C.line, () => this.onResetView?.());
+            const width = Math.min(150, (cardWidth - 64) / 3);
+            this._button(this._modal, 'Sound', '音效开关', -width - 12, -158, width, 32, C.line, () => this.onSound?.());
+            this._button(this._modal, 'ResetView', '回正视角', 0, -158, width, 32, C.line, () => this.onResetView?.());
+            this._button(this._modal, 'GMOpen', 'GM 面板', width + 12, -158, width, 32, C.line, () => this.onGMOpen?.());
         }
     }
     hideModal() { this._modalKind = ''; this._modal.active = false; }
