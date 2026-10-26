@@ -44,12 +44,27 @@ const { chromium } = require(process.argv[3] ? path.resolve(process.argv[3]) : '
             await page.mouse.move(fire.x, fire.y); await page.mouse.down();
             await page.waitForFunction(() => cc.director.getScene().getChildByName('Cannon').getComponent('CannonController')._charging, null, { timeout: 5000 });
             await page.waitForFunction(() => cc.director.getScene().getChildByName('Cannon').getComponent('CannonController')._charge >= 0.7, null, { timeout: 5000 });
+            const chargingUI = await page.evaluate(() => {
+                const ui = cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui;
+                return { power: ui._power.node.active, hint: ui._labels.get('Hint').string };
+            });
+            assert.equal(chargingUI.power, true); assert.equal(chargingUI.hint, '');
             await page.mouse.up();
             await page.waitForFunction(ammo => cc.director.getScene().getChildByName('Main').getComponent('GameManager').ammo === ammo - 1, before.ammo, { timeout: 5000 });
+            assert.equal(await page.evaluate(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._power.node.active), false);
             await waitReady(); return state();
         };
         await page.goto(process.argv[2], { waitUntil: 'domcontentloaded' }); await waitReady();
         assert.equal((await state()).cleared, 0, 'targets must remain supported before the first shot');
+        const hud = await page.evaluate(() => {
+            const g = cc.director.getScene().getChildByName('Main').getComponent('GameManager'), ui = g._ui;
+            const point = ui._uiCamera.worldToScreen(ui._root.getChildByName('Fire').worldPosition);
+            const covered = ui._hudBlockers.reduce((sum, node) => { const size = node.getComponent('cc.UITransform').contentSize; return sum + size.width * size.height; }, 0);
+            return { clearBottomCenter: ui.isGameplayScreenPoint(innerWidth / 2, innerHeight * 0.12), fireBlocksAim: !ui.isGameplayScreenPoint(point.x, point.y), coveredFraction: covered / (ui._w * ui._h), powerVisible: ui._power.node.active };
+        });
+        assert.equal(hud.clearBottomCenter, true, 'the cannon region must remain available for aiming');
+        assert.equal(hud.fireBlocksAim, true); assert.ok(hud.coveredFraction < 0.06, 'HUD cards must occupy under 6% of landscape'); assert.equal(hud.powerVisible, false);
+        console.log('PASS: compact corner HUD leaves the cannon clear and hides idle charge UI', hud);
         await clickButton('Pause'); assert.equal((await state()).paused, true);
         const paused = await state(); await page.mouse.click(480, 350); assert.deepEqual(await state(), paused);
         await clickButton('Continue'); assert.equal((await state()).paused, false);
@@ -71,10 +86,10 @@ const { chromium } = require(process.argv[3] ? path.resolve(process.argv[3]) : '
         await page.screenshot({ path: path.join(output, 'failure.png') }); console.log('PASS: last-shot failure after projectile resolution');
         await clickButton('Continue'); await waitReady();
         await page.setViewportSize({ width: 720, height: 1100 });
-        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._w === 720);
+        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._h === 1100);
         await page.screenshot({ path: path.join(output, 'portrait.png') });
         await clickButton('Pause'); await page.setViewportSize({ width: 1280, height: 800 });
-        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._w === 1280);
+        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._h === 720);
         assert.equal((await state()).paused, true);
         assert.equal(await page.evaluate(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._modal.active), true);
         await clickButton('Continue'); await page.screenshot({ path: path.join(output, 'landscape.png') });

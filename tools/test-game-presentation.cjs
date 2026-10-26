@@ -30,12 +30,12 @@ const { chromium } = require(process.argv[3] ? path.resolve(process.argv[3]) : '
         assert.deepEqual((await camera()).rotation, landscape.rotation, 'aim dragging must not orbit the camera');
         await page.evaluate(() => cc.director.getScene().getChildByName('Cannon').getComponent('CannonController').cancel()); await page.mouse.up();
         await page.setViewportSize({ width: 720, height: 1100 });
-        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._w === 720);
+        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._h === 1100);
         const portrait = await camera(); assert.ok(portrait.behind < -3); assert.ok(portrait.height < 4);
         await page.screenshot({ path: path.join(output, 'shoulder-portrait.png') });
         console.log('PASS: low shoulder camera stays behind the muzzle in landscape and portrait; dragging cannot rotate it');
         await page.setViewportSize({ width: 1280, height: 800 });
-        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._w === 1280);
+        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._h === 720);
 
         // One supported barrel and one remaining shot reproduce an immediate direct-hit victory.
         const aim = await page.evaluate(() => {
@@ -54,6 +54,12 @@ const { chromium } = require(process.argv[3] ? path.resolve(process.argv[3]) : '
         await page.mouse.move(aim.x, aim.y);
         const fire = await button('Fire'); await page.mouse.move(fire.x, fire.y); await page.mouse.down();
         await page.waitForFunction(() => cc.director.getScene().getChildByName('Cannon').getComponent('CannonController')._charge >= 0.7);
+        const chargeUI = await page.evaluate(() => {
+            const ui = cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui;
+            return { visible: ui._power.node.active, hint: ui._labels.get('Hint').string };
+        });
+        assert.equal(chargeUI.visible, true); assert.equal(chargeUI.hint, '');
+        await page.screenshot({ path: path.join(output, 'compact-hud-charge.png') });
         await page.mouse.up();
         await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager').phase === 'showcase', null, { timeout: 15000 });
         const early = await page.evaluate(() => {
@@ -61,6 +67,7 @@ const { chromium } = require(process.argv[3] ? path.resolve(process.argv[3]) : '
             return { modal: g._ui._modal.active, effects: g._particles.length, barrelVisible: g._targets[0].node.isValid, ammo: g.ammo, cleared: g.cleared };
         });
         assert.equal(early.modal, false); assert.ok(early.effects > 0); assert.equal(early.barrelVisible, true); assert.equal(early.ammo, 0); assert.equal(early.cleared, 1);
+        assert.equal(await page.evaluate(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._ui._power.node.active), false);
         await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._impactElapsed >= 0.45);
         await page.screenshot({ path: path.join(output, 'impact-showcase.png') });
         await click('Pause');

@@ -1,4 +1,4 @@
-import { _decorator, Camera, Component, EventMouse, geometry, Input, input, Node, PhysicsSystem, screen, Vec3 } from 'cc';
+import { _decorator, Camera, Component, EventMouse, geometry, Input, input, Node, PhysicsSystem, Vec3 } from 'cc';
 import { MeshLoader } from './MeshLoader';
 import { GameUI } from '../ui/GameUI';
 import { LevelBounds } from './LevelLoader';
@@ -35,8 +35,8 @@ export class CannonController extends Component {
         this._visual = await MeshLoader.instantiate('CannonBody', this._barrel); this._visual.setScale(8, 8, 8); this._visual.setPosition(0, 0, -0.2); paint(this._visual, '#FFB74E');
         shape(this.node, 'CannonPlinth', 'cylinder', '#294958', new Vec3(0, 0.1, 0), new Vec3(2.8, 0.25, 2.8));
         for (let i = 0; i < 22; i++) { const dot = shape(this.node.scene!, 'TrajectoryDot', 'sphere', i === 21 ? '#FFBD59' : '#BCE8DD', new Vec3(), new Vec3(0.07, 0.07, 0.07)); this._dots.push(dot); }
-        ui.onAimStart = e => { if (!this.canFire() || this.paused) return; this.aimAtScreen(e.getLocationX(), e.getLocationY()); this.beginCharge(); };
-        ui.onAimMove = e => { if (this._charging) this.aimAtScreen(e.getLocationX(), e.getLocationY()); };
+        ui.onAimStart = e => { if (!this.canFire() || this.paused || !ui.isGameplayScreenPoint(e.getLocationX(), e.getLocationY())) return; this.aimAtScreen(e.getLocationX(), e.getLocationY()); this.beginCharge(); };
+        ui.onAimMove = e => { if (this._charging && ui.isGameplayScreenPoint(e.getLocationX(), e.getLocationY())) this.aimAtScreen(e.getLocationX(), e.getLocationY()); };
         ui.onAimEnd = () => this.release(); ui.onCharge = () => this.beginCharge(); ui.onFire = () => this.release(); ui.onCancel = () => this.cancel();
         input.on(Input.EventType.MOUSE_MOVE, this._mouseAim, this);
     }
@@ -64,11 +64,12 @@ export class CannonController extends Component {
         this._updateAim();
     }
 
-    beginCharge() { if (!this.canFire() || this._shot || this.paused) return; this._charging = true; this._charge = 0.55; this._time = 0; }
-    cancel() { this._charging = false; this._charge = 0.55; this.ui?.setPower(this._charge); }
+    beginCharge() { if (!this.canFire() || this._shot || this.paused) return; this._charging = true; this._charge = 0.55; this._time = 0; this.ui.setCharging(true); }
+    cancel() { this._charging = false; this._charge = 0.55; this.ui?.setPower(this._charge); this.ui?.setCharging(false); }
     release() {
         if (!this._charging || !this.canFire() || this._shot || this.paused) { this.cancel(); return; }
         this._charging = false;
+        this.ui.setCharging(false);
         const velocity = this._velocity();
         const ball = shape(this.node.scene!, 'LiveCannonBall', 'sphere', '#FFCD6C', this._muzzle.clone(), new Vec3(0.3, 0.3, 0.3), true);
         this._flash?.destroy();
@@ -79,7 +80,7 @@ export class CannonController extends Component {
 
     reset() { this._shot?.node.destroy(); this._shot = null; this._flash?.destroy(); this._flash = null; this._recoil = 0; this.cancel(); }
     private _mouseAim(e: EventMouse) {
-        const y = e.getLocationY(); if (y < screen.windowSize.height * 0.24 || y > screen.windowSize.height * 0.78) return;
+        const y = e.getLocationY(); if (!this.ui?.isGameplayScreenPoint(e.getLocationX(), y)) return;
         if (!this._charging) this.aimAtScreen(e.getLocationX(), y);
     }
     private _velocity(): Vec3 {
