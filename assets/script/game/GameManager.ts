@@ -166,7 +166,7 @@ export class GameManager extends Component {
         const targetDistance = Math.hypot(center.x - cannon.x, center.z - cannon.z);
         const behind = Math.max(aspect < 1 ? 6.5 : 5.8, range - targetDistance);
         // A low shoulder camera sits behind the cannon, looking over its muzzle at the target.
-        this._cameraPosition.set(cannon.x - forward.x * behind + right.x * 0.55, this._cannon.mountPosition.y + 2.25, cannon.z - forward.z * behind + right.z * 0.55);
+        this._cameraPosition.set(cannon.x - forward.x * behind + right.x * 0.55, this._cannon.mountPosition.y + 1.8, cannon.z - forward.z * behind + right.z * 0.55);
         this._playerCamera.setHome(this._cameraPosition, center, preserveView);
         this._camera.near = 0.1;
         this._camera.far = Math.max(100, range * 3);
