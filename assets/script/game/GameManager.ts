@@ -3,15 +3,15 @@ import { DebugOrbitCamera } from '../DebugOrbitCamera';
 import { GameUI } from '../ui/GameUI';
 import { CannonController } from './CannonController';
 import { Destructible } from './Destructible';
-import { ammoForStage, MAX_LEVEL, starsForWin } from './GameRules';
+import { ammoForStage, canResolveShot, MAX_LEVEL, starsForWin } from './GameRules';
 import { shape } from './GameVisuals';
 import { LevelLoader, LevelLoadResult } from './LevelLoader';
 import { ObjectTypeRegistry } from './ObjectTypeRegistry';
 import { StageMechanics } from './StageMechanics';
 const { ccclass } = _decorator;
-type Phase = 'loading' | 'aiming' | 'flying' | 'settling' | 'won' | 'lost' | 'error';
+type Phase = 'loading' | 'aiming' | 'flying' | 'settling' | 'showcase' | 'won' | 'lost' | 'error';
 interface Progress { level: number; scores: Record<string, number>; stars: Record<string, number>; muted: boolean }
-interface Particle { node: Node; velocity: Vec3; age: number; life: number; size: number }
+interface Particle { node: Node; velocity: Vec3; age: number; life: number; size: number; kind: 'debris' | 'smoke' | 'flash' | 'ring' }
 
 @ccclass('GameManager')
 export class GameManager extends Component {
@@ -33,6 +33,7 @@ export class GameManager extends Component {
     private _targets: Destructible[] = [];
     private _particles: Particle[] = [];
     private _settling = 0;
+    private _impactElapsed = 0;
     private _shots = 0;
     private _levelBudget = 0;
     private _combo = 0;
@@ -48,7 +49,8 @@ export class GameManager extends Component {
         try { const saved = JSON.parse(sys.localStorage.getItem('cannon-progress-v1') || 'null'); if (saved && Number.isFinite(saved.level)) this._progress = { ...this._progress, ...saved }; } catch { /* Storage can be unavailable. */ }
         this.level = Math.max(1, Math.min(MAX_LEVEL, startLevel > 1 ? startLevel : this._progress.level));
         this._camera = this.node.scene!.getChildByName('Main Camera')!.getComponent(Camera)!;
-        const orbit = this._camera.node.getComponent(DebugOrbitCamera); if (orbit) orbit.enabled = false;
+        // Destroy the editor orbit controller so its global mouse listeners cannot rotate the player camera.
+        const orbit = this._camera.node.getComponent(DebugOrbitCamera); if (orbit) orbit.destroy();
         this._camera.visibility &= ~(1 << 25);
         this._camera.clearColor = new Color(29, 53, 68, 255);
         this._camera.clearFlags = Camera.ClearFlag.SOLID_COLOR;
@@ -85,6 +87,7 @@ export class GameManager extends Component {
         this.level = level; this.stage = stage;
         if (stage === 0) { this.score = 0; this._shots = 0; this._levelBudget = 0; }
         this.cleared = 0; this.total = 0; this._render();
+        this._settling = 0; this._impactElapsed = 0;
         try {
             this._loaded = await new LevelLoader(this._registry).loadLevel(level, this._root, stage);
             if (revision !== this._revision || !isValid(this.node)) return;
@@ -119,22 +122,31 @@ export class GameManager extends Component {
 
     private _frame() {
         const b = this._loaded!.bounds;
-        const center = new Vec3((b.min.x + b.max.x) / 2, Math.max(1.2, (b.min.y + b.max.y) / 2 - 0.6), (b.min.z + b.max.z) / 2 - 3.1);
-        const radius = Math.max(6, (b.max.x - b.min.x) * 0.7, (b.max.y - b.min.y) * 0.85, (b.max.z - b.min.z) * 0.8);
+        const center = new Vec3((b.min.x + b.max.x) / 2, Math.max(1.8, (b.min.y + b.max.y) / 2 + 0.45), (b.min.z + b.max.z) / 2);
         const aspect = screen.windowSize.width / Math.max(1, screen.windowSize.height);
-        const distance = radius * (aspect < 1 ? 3.7 : 2.7);
-        this._cameraPosition.set(center.x + distance * 0.28, center.y + distance * 0.5, center.z - distance);
+        this._camera.fov = 50;
+        const halfVertical = this._camera.fov * Math.PI / 360;
+        const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
+        const range = Math.max(10, (b.max.x - b.min.x + 2) / (2 * Math.tan(halfHorizontal) * 0.76), (b.max.y - b.min.y + 1) / (2 * Math.tan(halfVertical) * 0.62));
+        const cannon = this._cannon.node.worldPosition;
+        const forward = new Vec3(center.x - cannon.x, 0, center.z - cannon.z).normalize();
+        const right = new Vec3(-forward.z, 0, forward.x);
+        const targetDistance = Math.hypot(center.x - cannon.x, center.z - cannon.z);
+        const behind = Math.max(aspect < 1 ? 5 : 4, range - targetDistance);
+        // A low shoulder camera sits behind the cannon, looking over its muzzle at the target.
+        this._cameraPosition.set(cannon.x - forward.x * behind + right.x * 0.85, cannon.y + 2.35, cannon.z - forward.z * behind + right.z * 0.85);
         this._camera.node.setWorldPosition(this._cameraPosition); this._camera.node.lookAt(center);
-        this._camera.far = Math.max(100, distance * 3);
+        this._camera.near = 0.1;
+        this._camera.far = Math.max(100, range * 3);
     }
     private _onResize() { if (this._loaded) this._frame(); }
 
     private _impact(point: Vec3, hit: Node | null, power: number) {
-        this.phase = 'settling'; this._settling = 0;
+        this.phase = 'settling'; this._settling = 0; this._impactElapsed = 0;
         const direct = hit?.getComponent(Destructible);
         if (direct) direct.hit(point, 2, 0);
         this._blast(point, 1.15 + power * 0.95, 0, direct || undefined);
-        this._burst(point, 15, '#FFB650'); this._shake = 0.22; this._sound(65, 0.22);
+        this._burst(point, 15, '#FFB650'); this._impactEffects(point); this._shake = 0.25; this._sound(65, 0.22);
         if (!direct) this._ui.toast(hit ? '冲击波已释放' : '差一点！试着调整落点');
         this._render();
     }
@@ -163,11 +175,22 @@ export class GameManager extends Component {
     }
 
     private _burst(center: Vec3, count: number, color: string) {
-        for (let i = 0; i < count && this._particles.length < 120; i++) {
-            const size = 0.07 + Math.random() * 0.13;
+        for (let i = 0; i < count && this._particles.length < 160; i++) {
+            const size = 0.09 + Math.random() * 0.16;
             const node = shape(this._decor, 'ExplosionFragment', 'box', i % 3 ? color : '#F7D9A1', new Vec3(), new Vec3(size, size, size)); node.setWorldPosition(center);
-            this._particles.push({ node, velocity: new Vec3((Math.random() - 0.5) * 7, 2 + Math.random() * 5, (Math.random() - 0.5) * 7), age: 0, life: 0.5 + Math.random() * 0.65, size });
+            this._particles.push({ node, velocity: new Vec3((Math.random() - 0.5) * 7, 2 + Math.random() * 5, (Math.random() - 0.5) * 7), age: 0, life: 1.2 + Math.random() * 1.2, size, kind: 'debris' });
         }
+    }
+
+    private _impactEffects(center: Vec3) {
+        const add = (kind: Particle['kind'], color: string, size: number, life: number, velocity: Vec3) => {
+            const node = shape(this._decor, `Impact_${kind}`, kind === 'ring' ? 'ring' : 'sphere', color, new Vec3(), new Vec3(size, size, size), true);
+            node.setWorldPosition(center);
+            this._particles.push({ node, velocity, age: 0, life, size, kind });
+        };
+        add('flash', '#FFF0AD', 1.7, 0.28, new Vec3());
+        add('ring', '#FFC069', 1, 0.7, new Vec3());
+        for (let i = 0; i < 4; i++) add('smoke', i % 2 ? '#7B7770' : '#AAA18C', 0.4 + i * 0.1, 1.8 + i * 0.2, new Vec3((Math.random() - 0.5) * 1.7, 0.8 + i * 0.25, (Math.random() - 0.5) * 1.7));
     }
 
     update(dt: number) {
@@ -178,14 +201,32 @@ export class GameManager extends Component {
         for (let i = this._particles.length - 1; i >= 0; i--) {
             const p = this._particles[i]; p.age += dt;
             if (p.age > p.life) { p.node.destroy(); this._particles.splice(i, 1); continue; }
-            p.velocity.y -= 10 * dt; p.node.setWorldPosition(Vec3.scaleAndAdd(new Vec3(), p.node.worldPosition, p.velocity, dt));
-            p.node.setRotationFromEuler(p.age * 180, p.age * 250, 0); p.node.setScale(Vec3.ONE.clone().multiplyScalar(p.size * (1 - p.age / p.life)));
+            if (p.kind === 'debris') {
+                p.velocity.y -= 10 * dt;
+                const next = Vec3.scaleAndAdd(new Vec3(), p.node.worldPosition, p.velocity, dt);
+                if (next.y < 0.04 && p.velocity.y < 0) { next.y = 0.04; p.velocity.y *= -0.32; p.velocity.x *= 0.7; p.velocity.z *= 0.7; }
+                p.node.setWorldPosition(next); p.node.setRotationFromEuler(p.age * 180, p.age * 250, 0);
+                p.node.setScale(Vec3.ONE.clone().multiplyScalar(p.size * Math.min(1, (p.life - p.age) / 0.55)));
+            } else {
+                p.node.setWorldPosition(Vec3.scaleAndAdd(new Vec3(), p.node.worldPosition, p.velocity, dt));
+                const t = p.age / p.life;
+                const scale = p.kind === 'flash' ? p.size * (1 + t) * (1 - t) : p.kind === 'ring' ? 0.5 + t * 5 : p.size * (1 + t * 3) * Math.min(1, (1 - t) * 4);
+                p.node.setScale(scale, p.kind === 'ring' ? Math.max(0.03, (1 - t) * 0.4) : scale, scale);
+            }
         }
         this._shake = Math.max(0, this._shake - dt);
         this._camera.node.setWorldPosition(this._cameraPosition.x + (Math.random() - 0.5) * this._shake, this._cameraPosition.y + (Math.random() - 0.5) * this._shake, this._cameraPosition.z);
-        if (this.phase === 'settling' || this.phase === 'aiming' && this.cleared >= this.total) {
+        if (this.phase === 'aiming' && this.total > 0 && this.cleared >= this.total) { this.phase = 'settling'; this._impactElapsed = 0; this._settling = 0; }
+        if (this.phase === 'settling' || this.phase === 'showcase') {
+            this._impactElapsed += dt;
             this._settling += dt;
-            if (this._settling > 1.15) {
+            const cleared = this.cleared >= this.total;
+            if (cleared && this.phase !== 'showcase') { this.phase = 'showcase'; this._ui.toast('漂亮！目标全部摧毁'); this._render(); }
+            const alive = this._targets.filter(target => !target.removed && isValid(target.node));
+            const pending = alive.some(target => target.pending);
+            const velocity = new Vec3();
+            const moving = alive.some(target => { target.body.getLinearVelocity(velocity); return velocity.lengthSqr() > 0.36; });
+            if (canResolveShot(this._impactElapsed, this._settling, pending, moving, cleared || this.ammo <= 0)) {
                 if (this.cleared >= this.total) {
                     if (this.stage + 1 < this._loaded.config.stages.length) void this.load(this.level, this.stage + 1);
                     else this._win();

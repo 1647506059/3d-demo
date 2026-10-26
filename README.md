@@ -11,6 +11,8 @@
 
 支持暂停、音效开关、重试、下一关、星级评分和本地进度保存。横屏、竖屏均有独立布局。`Main.levelIndex` 大于 1 时可指定起始关卡；默认从本地进度继续。
 
+玩家相机固定在炮口后方，以低机位越肩视角瞄准，鼠标拖动只调整炮口。命中后保留油桶翻滚、碎片、烟尘和冲击波；最后一击至少展示 4 秒，并在最后一次连锁反应结束后保留至少 2.8 秒，再弹出结算。暂停期间不会消耗展示时间。
+
 ## 玩法与资源
 
 - 炮弹采用重力弹道和逐帧射线检测，避免高速飞行穿透目标；虚线预览与发射使用同一套弹道公式。
@@ -50,6 +52,7 @@ node --test tools/test-game-rules.mjs
 npm install --prefix temp/codex-cannon playwright --no-audit --no-fund
 $env:CANNON_CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 node tools/test-game-preview.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
+node tools/test-game-presentation.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 ```
 
-回归覆盖暂停/继续、真实鼠标瞄准和开炮、单发扣弹、碰撞与连爆、通关、下一关、重试、最后一发失败，以及横竖屏切换。验证截图和结果保存在 `temp/codex-cannon/`，不进入版本库。
+回归覆盖暂停/继续、真实鼠标瞄准和开炮、单发扣弹、碰撞与连爆、通关、下一关、重试、最后一发失败，以及横竖屏切换。表现回归额外检查炮口后方镜头、瞄准时镜头稳定、直接命中最后一个目标时的无弹窗展示，以及展示暂停和延迟结算。验证截图和结果保存在 `temp/codex-cannon/`，不进入版本库。

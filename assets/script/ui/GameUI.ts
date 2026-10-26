@@ -114,7 +114,7 @@ export class GameUI extends Component {
         this._text('Ammo', `${String(state.ammo).padStart(2, '0')} / ${String(state.budget).padStart(2, '0')}`);
         this._text('Objective', `摧毁目标   ${state.cleared} / ${state.total}`);
         this._bar(this._progress, 206, state.total ? state.cleared / state.total : 0, C.teal);
-        const hints: Record<string, string> = { loading: '正在装填靶场…', flying: '炮弹飞行中…', settling: '等待连锁反应…', aiming: '瞄准油桶下层，制造更大的连锁爆破。' };
+        const hints: Record<string, string> = { loading: '正在装填靶场…', flying: '炮弹飞行中…', settling: '连锁爆破中…', showcase: '目标清空！', aiming: '瞄准油桶下层，制造更大的连锁爆破。' };
         if (hints[state.phase]) this._text('Status', hints[state.phase]);
     }
 

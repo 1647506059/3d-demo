@@ -30,3 +30,20 @@ test('stars reward efficient wins at the correct boundary', () => {
     assert.equal(rules.starsForWin(4, 5), 2);
     assert.equal(rules.starsForWin(5, 5), 1);
 });
+
+test('a direct final hit cannot show results until the impact and debris have played', () => {
+    assert.equal(rules.canResolveShot(0.1, 0.1, false, false, true), false);
+    assert.equal(rules.canResolveShot(3, 3, false, false, true), false);
+    assert.equal(rules.canResolveShot(4, 0.2, false, false, true), false, 'a late chain reaction starts another quiet window');
+    assert.equal(rules.canResolveShot(4, 2.8, false, false, true), true);
+    assert.equal(rules.canResolveShot(4, 3, false, true, true), false, 'the last shot must also allow airborne targets to land');
+    assert.equal(rules.canResolveShot(7, 3, false, true, true), true, 'moving platforms cannot block results forever');
+    assert.equal(rules.canResolveShot(10, 5, true, false, true), false, 'pending explosions must finish');
+});
+
+test('another shot waits for falling targets, with a bound for perpetually moving platforms', () => {
+    assert.equal(rules.canResolveShot(1.5, 1.5, false, false, false), false);
+    assert.equal(rules.canResolveShot(2.2, 1, false, false, false), true);
+    assert.equal(rules.canResolveShot(3, 2, false, true, false), false);
+    assert.equal(rules.canResolveShot(7, 3, false, true, false), true);
+});

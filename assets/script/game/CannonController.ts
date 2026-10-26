@@ -24,7 +24,9 @@ export class CannonController extends Component {
     private _time = 0;
     private _recoil = 0;
     private _visual!: Node;
+    private _flash: Node | null = null;
     paused = false;
+    get muzzlePosition(): Readonly<Vec3> { return this._muzzle; }
 
     async setup(camera: Camera, ui: GameUI) {
         this.camera = camera; this.ui = ui;
@@ -68,12 +70,14 @@ export class CannonController extends Component {
         if (!this._charging || !this.canFire() || this._shot || this.paused) { this.cancel(); return; }
         this._charging = false;
         const velocity = this._velocity();
-        const ball = shape(this.node.scene!, 'LiveCannonBall', 'sphere', '#FFCD6C', this._muzzle.clone(), new Vec3(0.3, 0.3, 0.3));
+        const ball = shape(this.node.scene!, 'LiveCannonBall', 'sphere', '#FFCD6C', this._muzzle.clone(), new Vec3(0.3, 0.3, 0.3), true);
+        this._flash?.destroy();
+        this._flash = shape(this._barrel, 'MuzzleFlash', 'sphere', '#FFF0A5', new Vec3(0, 0, -1.35), new Vec3(0.7, 0.7, 0.95), true);
         this._shot = { node: ball, from: this._muzzle.clone(), velocity, time: 0, power: this._charge };
         this._recoil = 0.22; this.onShot?.(this._charge);
     }
 
-    reset() { this._shot?.node.destroy(); this._shot = null; this.cancel(); }
+    reset() { this._shot?.node.destroy(); this._shot = null; this._flash?.destroy(); this._flash = null; this._recoil = 0; this.cancel(); }
     private _mouseAim(e: EventMouse) {
         const y = e.getLocationY(); if (y < screen.windowSize.height * 0.24 || y > screen.windowSize.height * 0.78) return;
         if (!this._charging) this.aimAtScreen(e.getLocationX(), y);
@@ -87,13 +91,19 @@ export class CannonController extends Component {
         const origin = this._barrel.worldPosition;
         const aimDirection = Vec3.subtract(new Vec3(), this._aim, origin).normalize();
         this._muzzle.set(origin).add(aimDirection.multiplyScalar(1.25));
-        const v = this._velocity(); this._barrel.lookAt(Vec3.add(new Vec3(), origin, v));
+        // The ballistic elevation changes the muzzle direction; keep the shot origin on the visible barrel.
+        for (let i = 0; i < 2; i++) {
+            const v = this._velocity();
+            this._barrel.lookAt(Vec3.add(new Vec3(), origin, v));
+            this._muzzle.set(origin).add(v.normalize().multiplyScalar(1.25));
+        }
     }
     update(dt: number) {
         if (!this._bounds || this.paused) return;
         dt = Math.min(dt, 0.05);
         if (this._charging) { this._time += dt; this._charge = Math.min(1, 0.55 + this._time * 0.42); this.ui.setPower(this._charge); this._updateAim(); }
         this._recoil = Math.max(0, this._recoil - dt); if (this._visual) this._visual.setPosition(0, 0, -0.2 + this._recoil * 1.5);
+        if (this._flash) { const size = Math.max(0, (this._recoil - 0.08) / 0.14); this._flash.setScale(size * 0.7, size * 0.7, size); if (size <= 0) { this._flash.destroy(); this._flash = null; } }
         const visible = this.canFire() && !this._shot;
         this.ui.setAimScreen(this.camera.worldToScreen(this._aim), visible);
         const velocity = this._velocity();
