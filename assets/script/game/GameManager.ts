@@ -8,6 +8,7 @@ import { shape } from './GameVisuals';
 import { LevelLoader, LevelLoadResult } from './LevelLoader';
 import { ObjectTypeRegistry } from './ObjectTypeRegistry';
 import { StageMechanics } from './StageMechanics';
+import { PlayerCameraController } from './PlayerCameraController';
 const { ccclass } = _decorator;
 type Phase = 'loading' | 'aiming' | 'flying' | 'settling' | 'showcase' | 'won' | 'lost' | 'error';
 interface Progress { level: number; scores: Record<string, number>; stars: Record<string, number>; muted: boolean }
@@ -26,6 +27,7 @@ export class GameManager extends Component {
     private _ui!: GameUI;
     private _cannon!: CannonController;
     private _camera!: Camera;
+    private _playerCamera!: PlayerCameraController;
     private _registry = new ObjectTypeRegistry();
     private _root!: Node;
     private _decor!: Node;
@@ -62,6 +64,15 @@ export class GameManager extends Component {
         view.on('canvas-resize', this._onResize, this);
         const plane = this.node.scene!.getChildByName('Plane'); if (plane) plane.active = false;
         this._ui = this.node.addComponent(GameUI);
+        this._playerCamera = this._camera.node.addComponent(PlayerCameraController);
+        this._playerCamera.ui = this._ui;
+        this._ui.canUseButtons = () => !this._playerCamera.nonPrimaryPointer;
+        this._ui.onGestureStart = event => this._playerCamera.touchStart(event);
+        this._ui.onGestureMove = event => this._playerCamera.touchMove(event);
+        this._ui.onGestureEnd = event => this._playerCamera.touchEnd(event);
+        this._playerCamera.canControl = () => !this._paused && !['loading', 'won', 'lost', 'error'].includes(this.phase);
+        this._ui.onView = () => this._playerCamera.toggleViewMode();
+        this._ui.onResetView = () => this._playerCamera.reset();
         this._ui.onRetry = () => { this._resume(); void this.load(this.level); };
         this._ui.onNext = () => { this._resume(); void this.load(this.level < MAX_LEVEL ? this.level + 1 : 1); };
         this._ui.onPause = () => this.togglePause();
@@ -69,7 +80,9 @@ export class GameManager extends Component {
         const root = this.node.scene!.getChildByName('LevelRoot') || new Node('LevelRoot'); root.parent = this.node.scene!; this._root = root;
         this._decor = new Node('Arena'); this._decor.parent = this.node.scene!;
         const cannonNode = new Node('Cannon'); cannonNode.parent = this.node.scene!; this._cannon = cannonNode.addComponent(CannonController);
-        this._cannon.canFire = () => this.phase === 'aiming' && !this._paused && this.ammo > 0;
+        this._playerCamera.onInteraction = () => this._cannon?.cancel();
+        this._cannon.canAim = () => !this._playerCamera.viewMode && !this._playerCamera.interacting;
+        this._cannon.canFire = () => this.phase === 'aiming' && !this._paused && this.ammo > 0 && !this._playerCamera.interacting;
         this._cannon.onShot = () => { this.ammo--; this._shots++; this._combo = 0; this.phase = 'flying'; this._sound(110, 0.16); this._shake = 0.1; this._render(); };
         this._cannon.onImpact = (point, hit, power) => this._impact(point, hit, power);
         this._render();
@@ -120,7 +133,7 @@ export class GameManager extends Component {
         }
     }
 
-    private _frame() {
+    private _frame(preserveView = false) {
         const b = this._loaded!.bounds;
         const center = new Vec3((b.min.x + b.max.x) / 2, Math.max(1.8, (b.min.y + b.max.y) / 2 + 0.45), (b.min.z + b.max.z) / 2);
         const aspect = screen.windowSize.width / Math.max(1, screen.windowSize.height);
@@ -135,11 +148,11 @@ export class GameManager extends Component {
         const behind = Math.max(aspect < 1 ? 5 : 4, range - targetDistance);
         // A low shoulder camera sits behind the cannon, looking over its muzzle at the target.
         this._cameraPosition.set(cannon.x - forward.x * behind + right.x * 0.85, cannon.y + 2.35, cannon.z - forward.z * behind + right.z * 0.85);
-        this._camera.node.setWorldPosition(this._cameraPosition); this._camera.node.lookAt(center);
+        this._playerCamera.setHome(this._cameraPosition, center, preserveView);
         this._camera.near = 0.1;
         this._camera.far = Math.max(100, range * 3);
     }
-    private _onResize() { if (this._loaded) this._frame(); }
+    private _onResize() { if (this._loaded) this._frame(true); }
 
     private _impact(point: Vec3, hit: Node | null, power: number) {
         this.phase = 'settling'; this._settling = 0; this._impactElapsed = 0;
@@ -215,7 +228,7 @@ export class GameManager extends Component {
             }
         }
         this._shake = Math.max(0, this._shake - dt);
-        this._camera.node.setWorldPosition(this._cameraPosition.x + (Math.random() - 0.5) * this._shake, this._cameraPosition.y + (Math.random() - 0.5) * this._shake, this._cameraPosition.z);
+        this._playerCamera.setShake(this._shake);
         if (this.phase === 'aiming' && this.total > 0 && this.cleared >= this.total) { this.phase = 'settling'; this._impactElapsed = 0; this._settling = 0; }
         if (this.phase === 'settling' || this.phase === 'showcase') {
             this._impactElapsed += dt;
@@ -248,6 +261,8 @@ export class GameManager extends Component {
     togglePause() {
         if (['loading', 'won', 'lost', 'error'].includes(this.phase)) return;
         this._paused = !this._paused; this._cannon.paused = this._paused; this._cannon.cancel(); PhysicsSystem.instance.enable = !this._paused;
+        this._playerCamera.cancelInteraction();
+        if (this._paused) this._playerCamera.setShake(0);
         for (const target of this._targets) target.paused = this._paused;
         if (this._paused) this._ui.showModal('paused', 0, '放松一下，回来再炸个痛快。'); else this._ui.hideModal();
     }

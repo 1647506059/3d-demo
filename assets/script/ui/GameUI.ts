@@ -12,6 +12,9 @@ export class GameUI extends Component {
     onAimStart: ((event: EventTouch) => void) | null = null;
     onAimMove: ((event: EventTouch) => void) | null = null;
     onAimEnd: (() => void) | null = null;
+    onGestureStart: ((event: EventTouch) => void) | null = null;
+    onGestureMove: ((event: EventTouch) => void) | null = null;
+    onGestureEnd: ((event: EventTouch) => void) | null = null;
     onCharge: (() => void) | null = null;
     onFire: (() => void) | null = null;
     onCancel: (() => void) | null = null;
@@ -19,6 +22,9 @@ export class GameUI extends Component {
     onNext: (() => void) | null = null;
     onPause: (() => void) | null = null;
     onSound: (() => void) | null = null;
+    onView: (() => void) | null = null;
+    onResetView: (() => void) | null = null;
+    canUseButtons: () => boolean = () => true;
     private _root!: Node;
     private _labels = new Map<string, Label>();
     private _progress!: Graphics;
@@ -31,6 +37,7 @@ export class GameUI extends Component {
     private _hintTime = 6;
     private _hintOpacity!: UIOpacity;
     private _charging = false;
+    private _viewMode = false;
     private _fire!: Node;
     private _hudBlockers: Node[] = [];
     private _modalKind = '';
@@ -64,10 +71,10 @@ export class GameUI extends Component {
         canvas.cameraComponent = cam; canvas.alignCanvasWithScreen = true;
         this._uiCamera = cam;
         const surface = this._node('AimSurface', root, 0, 0, w, h);
-        surface.on(Node.EventType.TOUCH_START, (e: EventTouch) => this.onAimStart?.(e));
-        surface.on(Node.EventType.TOUCH_MOVE, (e: EventTouch) => this.onAimMove?.(e));
-        surface.on(Node.EventType.TOUCH_END, () => this.onAimEnd?.());
-        surface.on(Node.EventType.TOUCH_CANCEL, () => this.onCancel?.());
+        surface.on(Node.EventType.TOUCH_START, (e: EventTouch) => { this.onGestureStart?.(e); this.onAimStart?.(e); });
+        surface.on(Node.EventType.TOUCH_MOVE, (e: EventTouch) => { this.onGestureMove?.(e); this.onAimMove?.(e); });
+        surface.on(Node.EventType.TOUCH_END, (e: EventTouch) => { this.onAimEnd?.(); this.onGestureEnd?.(e); });
+        surface.on(Node.EventType.TOUCH_CANCEL, (e: EventTouch) => { this.onCancel?.(); this.onGestureEnd?.(e); });
         this._reticle = this._node('AimReticle', root, 0, 0, 30, 30);
         const reticle = this._reticle.addComponent(Graphics);
         reticle.strokeColor = new Color().fromHEX(C.gold); reticle.lineWidth = 2; reticle.circle(0, 0, 12);
@@ -78,7 +85,8 @@ export class GameUI extends Component {
         this._label(root, 'Level', '', left + 12, h / 2 - 35, 100, 19, C.ink, true, Label.HorizontalAlign.LEFT);
         this._label(root, 'Objective', '', left + 110, h / 2 - 35, 130, 15, C.muted, false, Label.HorizontalAlign.LEFT);
         this._progress = this._node('Progress', root, left + 12, h / 2 - 57, 224, 4).addComponent(Graphics);
-        this._label(root, 'Score', '', w / 2 - 183, h / 2 - 36, 150, 18, C.teal, true);
+        this._label(root, 'Score', '', w / 2 - 235, h / 2 - 36, 120, 18, C.teal, true);
+        this._button(root, 'View', this._viewMode ? '瞄准' : '视角', w / 2 - 143, h / 2 - 36, 42, 42, C.panel, () => this.onView?.());
         this._button(root, 'Retry', '↻', w / 2 - 91, h / 2 - 36, 42, 42, C.panel, () => this.onRetry?.());
         this._button(root, 'Pause', 'II', w / 2 - 39, h / 2 - 36, 42, 42, C.panel, () => this.onPause?.());
         this._label(root, 'Combo', '', 0, h / 2 - 102, Math.min(480, w - 40), 22, C.gold, true);
@@ -117,6 +125,7 @@ export class GameUI extends Component {
         if (this._power) this._power.node.active = charging;
         this._updateFire();
     }
+    setViewMode(enabled: boolean) { this._viewMode = enabled; this._text('View', enabled ? '瞄准' : '视角'); }
     isGameplayScreenPoint(x: number, y: number): boolean {
         if (this._modal?.active) return false;
         const p = this._root.getComponent(UITransform)!.convertToNodeSpaceAR(this._uiCamera.screenToWorld(new Vec3(x, y, 0)));
@@ -160,7 +169,10 @@ export class GameUI extends Component {
         this._label(this._modal, 'Stars', kind === 'won' ? Array.from({ length: 3 }, (_, i) => i < stars ? '★' : '☆').join('  ') : kind === 'paused' ? 'II' : '↻', 0, 35, 420, 46, C.gold, true);
         this._label(this._modal, 'ResultDetail', kind === 'paused' ? `关卡最佳 ${this._state?.best || 0} 分` : detail, 0, -30, 440, 18, C.muted);
         this._button(this._modal, 'Continue', kind === 'won' ? '下一关  →' : kind === 'paused' ? '继续战斗' : '重新挑战', 0, -100, 320, 60, C.gold, () => kind === 'won' ? this.onNext?.() : kind === 'paused' ? this.onPause?.() : this.onRetry?.());
-        if (kind === 'paused') this._button(this._modal, 'Sound', '音效开关', 0, -158, 150, 32, C.line, () => this.onSound?.());
+        if (kind === 'paused') {
+            this._button(this._modal, 'Sound', '音效开关', -90, -158, 150, 32, C.line, () => this.onSound?.());
+            this._button(this._modal, 'ResetView', '回正视角', 90, -158, 150, 32, C.line, () => this.onResetView?.());
+        }
     }
     hideModal() { this._modalKind = ''; this._modal.active = false; }
 
@@ -187,7 +199,7 @@ export class GameUI extends Component {
     private _button(parent: Node, name: string, text: string, x: number, y: number, w: number, h: number, color: string, action: () => void) {
         const node = this._panel(parent, name, x, y, w, h, color, parent === this._root && color !== C.gold ? 165 : 255);
         if (parent === this._root) this._hudBlockers.push(node);
-        this._label(node, name, text, 0, 0, w - 8, h > 48 ? 20 : 18, color === C.gold ? '#253640' : C.ink, true);
-        node.on(Node.EventType.TOUCH_END, (e: EventTouch) => { e.propagationStopped = true; action(); }); return node;
+        this._label(node, name, text, 0, 0, w - 8, w <= 48 && text.length > 1 ? 14 : h > 48 ? 20 : 18, color === C.gold ? '#253640' : C.ink, true);
+        node.on(Node.EventType.TOUCH_END, (e: EventTouch) => { e.propagationStopped = true; if (this.canUseButtons()) action(); }); return node;
     }
 }
