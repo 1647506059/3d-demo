@@ -1,0 +1,14 @@
+{
+  "name": "pink-automation-bridge",
+  "publisher": "SUD",
+  "displayName": "PinK External Automation Bridge (Local)",
+  "description": "Local, project-bound automation of PinK domain APIs outside the Chat panel.",
+  "version": "0.1.1",
+  "license": "MIT",
+  "engines": { "vscode": "^1.127.0", "pink": ">=0.0.2.0" },
+  "pinkApiGroup": "internal-automation",
+  "extensionKind": ["ui"],
+  "main": "./extension.cjs",
+  "activationEvents": ["onStartupFinished"],
+  "capabilities": { "untrustedWorkspaces": { "supported": false } }
+}

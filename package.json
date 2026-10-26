@@ -1,7 +1,13 @@
 {
-  "name": "NewProject_6",
-  "uuid": "736556bd-e668-46cc-968d-092c6eadfa6c",
-  "creator": {
-    "version": "3.8.8"
-  }
+    "name": "NewProject_6",
+    "type": "3d",
+    "version": "unknow",
+    "uuid": "736556bd-e668-46cc-968d-092c6eadfa6c",
+    "creator": {
+        "version": "3.8.8"
+    },
+    "pink": {
+        "uuid": "38dd0c30-a591-414c-b1e9-e54336ef8638",
+        "version": "1.127.0"
+    }
 }
