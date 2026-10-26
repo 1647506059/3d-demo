@@ -50,6 +50,14 @@ export class GameManager extends Component {
     private _audio: AudioContext | null = null;
     private _progress: Progress = { level: 1, scores: {}, stars: {}, muted: false };
 
+    private get _inCombat(): boolean {
+        return this.phase === 'aiming' || this.phase === 'flying' || this.phase === 'settling';
+    }
+
+    private get _canControlView(): boolean {
+        return this._inCombat || this.phase === 'showcase';
+    }
+
     async initialize(startLevel: number) {
         try { const saved = JSON.parse(sys.localStorage.getItem('cannon-progress-v1') || 'null'); if (saved && Number.isFinite(saved.level)) this._progress = { ...this._progress, ...saved }; } catch { /* Storage can be unavailable. */ }
         this.level = Math.max(1, Math.min(MAX_LEVEL, startLevel > 1 ? startLevel : this._progress.level));
@@ -75,7 +83,7 @@ export class GameManager extends Component {
         this._ui.onGestureStart = event => this._playerCamera.touchStart(event);
         this._ui.onGestureMove = event => this._playerCamera.touchMove(event);
         this._ui.onGestureEnd = event => this._playerCamera.touchEnd(event);
-        this._playerCamera.canControl = () => !this._paused && !['loading', 'won', 'lost', 'error'].includes(this.phase);
+        this._playerCamera.canControl = () => !this._paused && this._canControlView;
         this._ui.onView = () => this._playerCamera.toggleViewMode();
         this._ui.onResetView = () => this._playerCamera.reset();
         this._ui.onRetry = () => { this._resume(); void this.load(this.level); };
@@ -87,7 +95,7 @@ export class GameManager extends Component {
         const cannonNode = new Node('Cannon'); cannonNode.parent = this.node.scene!; this._cannon = cannonNode.addComponent(CannonController);
         this._playerCamera.onInteraction = () => this._cannon?.cancel();
         this._cannon.canAim = () => !this._playerCamera.viewMode && !this._playerCamera.interacting;
-        this._cannon.canFire = () => ['aiming', 'flying', 'settling'].includes(this.phase) && !this._paused && this.ammo > 0 && this.cleared < this.total && !this._playerCamera.interacting;
+        this._cannon.canFire = () => this._inCombat && !this._paused && this.ammo > 0 && this.cleared < this.total && !this._playerCamera.interacting;
         this._cannon.onShot = () => { this.ammo--; this._shots++; this._combo = 0; this.phase = 'flying'; this._settling = 0; this._impactElapsed = 0; this._sound(110, 0.16); this._shake = 0.1; this._render(); };
         this._cannon.onImpact = (point, hit, power) => this._impact(point, hit, power);
         this._render();
@@ -253,7 +261,7 @@ export class GameManager extends Component {
         }
         this._shake = Math.max(0, this._shake - dt);
         this._playerCamera.setShake(this._shake);
-        if (['aiming', 'flying', 'settling'].includes(this.phase) && this.total > 0 && this.cleared >= this.total) {
+        if (this._inCombat && this.total > 0 && this.cleared >= this.total) {
             this.phase = 'showcase'; this._cannon.cancel(); this._impactElapsed = 0; this._settling = 0;
             this._ui.toast('漂亮！目标全部摧毁'); this._render();
         }
@@ -287,7 +295,7 @@ export class GameManager extends Component {
     }
 
     togglePause() {
-        if (['loading', 'won', 'lost', 'error'].includes(this.phase)) return;
+        if (!this._canControlView) return;
         this._paused = !this._paused; this._cannon.paused = this._paused; this._cannon.cancel(); PhysicsSystem.instance.enable = !this._paused;
         this._playerCamera.cancelInteraction();
         if (this._paused) this._playerCamera.setShake(0);

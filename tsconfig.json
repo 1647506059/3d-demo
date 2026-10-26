@@ -6,6 +6,7 @@
   "compilerOptions": {
     "strict": false,
     "lib": ["ES2017", "DOM"],
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    "skipLibCheck": true
   }
 }

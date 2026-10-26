@@ -41,9 +41,11 @@ const { chromium } = require(process.argv[3] ? path.resolve(process.argv[3]) : '
         await click('Pause'); const paused = await state(); await page.waitForTimeout(350);
         assert.deepEqual((await state()).balls, paused.balls, 'pause freezes every projectile');
         await click('Continue');
-        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._cannon._balls[0]?.time > 2.85);
+        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._cannon._balls[0]?.time > 1.5);
+        const impactsBeforeCharge = await page.evaluate(() => window.rapidProbe.impacts.length);
         const fire = await button('Fire'); await page.mouse.move(fire.x, fire.y); await page.mouse.down();
-        await page.waitForFunction(() => window.rapidProbe.impacts.length > 0);
+        await page.waitForFunction(() => cc.director.getScene().getChildByName('Main').getComponent('GameManager')._cannon._charge > 0.6);
+        await page.waitForFunction(count => window.rapidProbe.impacts.length > count, impactsBeforeCharge);
         const duringImpact = await state(); assert.equal(duringImpact.charging, true); assert.ok(duringImpact.power > 0.55, 'an earlier impact cannot reset the next charge');
         await page.mouse.up(); assert.equal((await state()).ammo, initial.ammo - 3);
         assert.ok((await state()).active > 0);
