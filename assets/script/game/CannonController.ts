@@ -7,10 +7,11 @@ import { paint, shape } from './GameVisuals';
 const { ccclass } = _decorator;
 interface CannonBall { node: Node; from: Vec3; velocity: Vec3; time: number; power: number }
 const MODEL_SCALE = 6;
-// Measured in the imported models: the stand's upper cross-shaft and barrel centerline.
-const STAND_FOOT_Y = -0.0888510272;
-const STAND_AXLE_Y = 0.0659475252;
-const STAND_AXLE_Z = 0.0234950992;
+// The carriage is authored Z-up: lay it flat, then mount at the side trunnions, not a wheel axle.
+const STAND_FOOT_Z = 0.0005916071;
+const STAND_TRUNNION_X = 0.0004609004;
+const STAND_TRUNNION_Y = -0.0318922643;
+const STAND_TRUNNION_Z = 0.0960226059;
 const BARREL_AXIS_Y = -0.0006201193;
 const BARREL_REST_Z = -0.2;
 const MUZZLE_LENGTH = 0.1183437333 * MODEL_SCALE - BARREL_REST_Z;
@@ -49,10 +50,12 @@ export class CannonController extends Component {
 
     async setup(camera: Camera, ui: GameUI) {
         this.camera = camera; this.ui = ui;
-        const standY = 0.25 - STAND_FOOT_Y * MODEL_SCALE;
+        const standY = 0.25 - STAND_FOOT_Z * MODEL_SCALE;
         this._yaw = new Node('CannonYaw'); this._yaw.parent = this.node;
-        this._barrel = new Node('CannonAim'); this._barrel.parent = this._yaw; this._barrel.setPosition(0, standY + STAND_AXLE_Y * MODEL_SCALE, 0);
-        const base = await MeshLoader.instantiate('CannonBottom', this._yaw); base.setScale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); base.setPosition(0, standY, -STAND_AXLE_Z * MODEL_SCALE); paint(base, '#344D62');
+        this._barrel = new Node('CannonAim'); this._barrel.parent = this._yaw; this._barrel.setPosition(0, standY + STAND_TRUNNION_Z * MODEL_SCALE, 0);
+        const base = await MeshLoader.instantiate('CannonBottom', this._yaw);
+        base.setScale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); base.setRotationFromEuler(-90, 0, 0);
+        base.setPosition(-STAND_TRUNNION_X * MODEL_SCALE, standY, STAND_TRUNNION_Y * MODEL_SCALE); paint(base, '#344D62');
         this._visual = await MeshLoader.instantiate('CannonBody', this._barrel); this._visual.setScale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); this._visual.setPosition(0, -BARREL_AXIS_Y * MODEL_SCALE, BARREL_REST_Z); paint(this._visual, '#FFB74E');
         shape(this.node, 'CannonPlinth', 'cylinder', '#294958', new Vec3(0, 0.125, 0), new Vec3(2.2, 0.25, 2.2));
         for (let i = 0; i < 22; i++) { const dot = shape(this.node.scene!, 'TrajectoryDot', 'sphere', i === 21 ? '#FFBD59' : '#BCE8DD', new Vec3(), new Vec3(0.07, 0.07, 0.07)); this._dots.push(dot); }

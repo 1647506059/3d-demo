@@ -20,8 +20,10 @@ function geometry(name) {
     return { min: accessor.min, max: accessor.max, points: Array.from({ length: accessor.count }, (_, i) => [0, 1, 2].map(axis => data.readFloatLE(start + i * stride + axis * 4))) };
 }
 const stand = geometry('CannonBottom'), barrel = geometry('CannonBody');
-const ends = stand.points.filter(p => Math.abs(p[0]) > Math.max(Math.abs(stand.min[0]), Math.abs(stand.max[0])) * 0.84 && p[1] > 0);
-const axle = [0, 1, 2].map(axis => (Math.min(...ends.map(p => p[axis])) + Math.max(...ends.map(p => p[axis]))) / 2);
+// Isolate the side trunnion caps above the wheel band in the model's Z-up coordinates.
+const caps = stand.points.filter(p => p[2] > 0.07);
+const left = caps.reduce((a, b) => a[0] < b[0] ? a : b), right = caps.reduce((a, b) => a[0] > b[0] ? a : b);
+const axle = left.map((value, axis) => (value + right[axis]) / 2);
 const mouth = [(barrel.min[0] + barrel.max[0]) / 2, (barrel.min[1] + barrel.max[1]) / 2, barrel.min[2]];
 
 (async () => {
@@ -38,7 +40,10 @@ const mouth = [(barrel.min[0] + barrel.max[0]) / 2, (barrel.min[1] + barrel.max[
             const measure = () => {
                 const standRight = cc.Vec3.transformQuat(new cc.Vec3(), new cc.Vec3(1, 0, 0), stand.worldRotation);
                 const barrelRight = cc.Vec3.transformQuat(new cc.Vec3(), new cc.Vec3(1, 0, 0), c._barrel.worldRotation);
-                return { axleGap: cc.Vec3.distance(transform(stand, axle), c.mountPosition), mouthGap: cc.Vec3.distance(transform(c._visual, mouth), c.muzzlePosition), axisDot: cc.Vec3.dot(standRight, barrelRight) };
+                const modelUp = cc.Vec3.transformQuat(new cc.Vec3(), new cc.Vec3(0, 0, 1), stand.worldRotation);
+                const wheelEnds = [-1, 1].flatMap(x => [-1, 1].map(y => transform(stand, [x * 0.1196, y * 0.0659475, 0.0005916071]).y));
+                const pad = c.node.getChildByName('CannonPlinth'), padTop = pad.worldPosition.y + pad.scale.y / 2;
+                return { axleGap: cc.Vec3.distance(transform(stand, axle), c.mountPosition), mouthGap: cc.Vec3.distance(transform(c._visual, mouth), c.muzzlePosition), axisDot: cc.Vec3.dot(standRight, barrelRight), upright: modelUp.y, wheelGaps: wheelEnds.map(y => y - padTop) };
             };
             const results = [];
             for (const aim of [[0, 1.5, 8], [-6, 4, 8], [6, 0.4, 8], [0, 10, 8], [-8, 2, 1]]) {
@@ -61,6 +66,8 @@ const mouth = [(barrel.min[0] + barrel.max[0]) / 2, (barrel.min[1] + barrel.max[
             assert.ok(pose.axleGap < 1e-4, JSON.stringify(pose));
             assert.ok(pose.mouthGap < 1e-4, JSON.stringify(pose));
             assert.ok(pose.axisDot > 0.99999, JSON.stringify(pose));
+            assert.ok(pose.upright > 0.99999, 'the carriage uses its authored Z-up direction');
+            assert.ok(pose.wheelGaps.every(gap => Math.abs(gap) < 1e-4), 'all four wheel bottoms sit on the plinth');
         }
         const fire = await page.evaluate(() => {
             const g = cc.director.getScene().getChildByName('Main').getComponent('GameManager');
@@ -70,6 +77,6 @@ const mouth = [(barrel.min[0] + barrel.max[0]) / 2, (barrel.min[1] + barrel.max[
         const shot = await page.evaluate(() => window.mountShotProbe);
         assert.ok(shot.launchGap < 1e-4, JSON.stringify(shot)); assert.ok(shot.mouthGap < 1e-4, JSON.stringify(shot)); assert.ok(shot.flashGap < 1e-4, JSON.stringify(shot));
         assert.deepEqual(errors, []);
-        console.log('PASS: barrel pivot stays on the mesh cross-shaft through yaw, pitch and recoil; projectile and flash start at the visible muzzle', { maximumAxleGap: Math.max(...measurements.map(p => p.axleGap)), maximumMouthGap: Math.max(...measurements.map(p => p.mouthGap)), shot });
+        console.log('PASS: carriage lies flat on four wheels; barrel stays on the side trunnions through yaw, pitch and recoil; projectile and flash match the muzzle', { maximumAxleGap: Math.max(...measurements.map(p => p.axleGap)), maximumMouthGap: Math.max(...measurements.map(p => p.mouthGap)), shot });
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
