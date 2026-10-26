@@ -6,7 +6,14 @@ import { GRAVITY, launchVelocity } from './GameRules';
 import { paint, shape } from './GameVisuals';
 const { ccclass } = _decorator;
 interface CannonBall { node: Node; from: Vec3; velocity: Vec3; time: number; power: number }
-const MUZZLE_LENGTH = 0.9375;
+const MODEL_SCALE = 6;
+// Measured in the imported models: the stand's upper cross-shaft and barrel centerline.
+const STAND_FOOT_Y = -0.0888510272;
+const STAND_AXLE_Y = 0.0659475252;
+const STAND_AXLE_Z = 0.0234950992;
+const BARREL_AXIS_Y = -0.0006201193;
+const BARREL_REST_Z = -0.2;
+const MUZZLE_LENGTH = 0.1183437333 * MODEL_SCALE - BARREL_REST_Z;
 
 @ccclass('CannonController')
 export class CannonController extends Component {
@@ -17,6 +24,7 @@ export class CannonController extends Component {
     onShot: ((power: number) => void) | null = null;
     onImpact: ((point: Vec3, hit: Node | null, power: number) => void) | null = null;
     private _barrel!: Node;
+    private _yaw!: Node;
     private _muzzle = new Vec3();
     private _aim = new Vec3();
     private _bounds!: LevelBounds;
@@ -41,10 +49,11 @@ export class CannonController extends Component {
 
     async setup(camera: Camera, ui: GameUI) {
         this.camera = camera; this.ui = ui;
-        this._barrel = new Node('CannonAim'); this._barrel.parent = this.node; this._barrel.setPosition(0, 1.083, 0);
-        // The imported stand is centered vertically but its depth starts at the rear edge.
-        const base = await MeshLoader.instantiate('CannonBottom', this.node); base.setScale(6, 6, 6); base.setPosition(0, 0.783, -0.389); paint(base, '#344D62');
-        this._visual = await MeshLoader.instantiate('CannonBody', this._barrel); this._visual.setScale(6, 6, 6); this._visual.setPosition(0, 0, -0.2); paint(this._visual, '#FFB74E');
+        const standY = 0.25 - STAND_FOOT_Y * MODEL_SCALE;
+        this._yaw = new Node('CannonYaw'); this._yaw.parent = this.node;
+        this._barrel = new Node('CannonAim'); this._barrel.parent = this._yaw; this._barrel.setPosition(0, standY + STAND_AXLE_Y * MODEL_SCALE, 0);
+        const base = await MeshLoader.instantiate('CannonBottom', this._yaw); base.setScale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); base.setPosition(0, standY, -STAND_AXLE_Z * MODEL_SCALE); paint(base, '#344D62');
+        this._visual = await MeshLoader.instantiate('CannonBody', this._barrel); this._visual.setScale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); this._visual.setPosition(0, -BARREL_AXIS_Y * MODEL_SCALE, BARREL_REST_Z); paint(this._visual, '#FFB74E');
         shape(this.node, 'CannonPlinth', 'cylinder', '#294958', new Vec3(0, 0.125, 0), new Vec3(2.2, 0.25, 2.2));
         for (let i = 0; i < 22; i++) { const dot = shape(this.node.scene!, 'TrajectoryDot', 'sphere', i === 21 ? '#FFBD59' : '#BCE8DD', new Vec3(), new Vec3(0.07, 0.07, 0.07)); this._dots.push(dot); }
         ui.onAimStart = e => { if (!this.canAim() || !this.canFire() || this.paused || !ui.isGameplayScreenPoint(e.getLocationX(), e.getLocationY())) return; this.aimAtScreen(e.getLocationX(), e.getLocationY()); this.beginCharge(); };
@@ -77,7 +86,12 @@ export class CannonController extends Component {
     }
 
     beginCharge() { if (!this.canFire() || this._charging || this.paused) return; this._charging = true; this._charge = 0.55; this._time = 0; this.ui.setCharging(true); }
-    cancel() { this._charging = false; if (this._charge !== 0.55) this._trajectoryDirty = true; this._charge = 0.55; this.ui?.setPower(this._charge); this.ui?.setCharging(false); }
+    cancel() {
+        this._charging = false;
+        const powerChanged = this._charge !== 0.55;
+        this._charge = 0.55; this.ui?.setPower(this._charge); this.ui?.setCharging(false);
+        if (powerChanged && this._bounds) this._updateAim();
+    }
     release() {
         if (!this._charging || !this.canFire() || this.paused) { this.cancel(); return; }
         this._charging = false;
@@ -88,14 +102,16 @@ export class CannonController extends Component {
         this._flash = shape(this._barrel, 'MuzzleFlash', 'sphere', '#FFF0A5', new Vec3(0, 0, -MUZZLE_LENGTH), new Vec3(0.7, 0.7, 0.95), true);
         this._balls.push({ node: ball, from: this._muzzle.clone(), velocity, time: 0, power: this._charge });
         this._recoil = 0.22; this.onShot?.(this._charge);
+        this._visual.setPosition(0, -BARREL_AXIS_Y * MODEL_SCALE, BARREL_REST_Z + this._recoil * 1.5);
         this.cancel(); this._updateAim();
     }
 
     reset() {
         for (const ball of this._balls) ball.node.destroy(); this._balls = [];
         this._flash?.destroy(); this._flash = null;
-        if (this._visual?.isValid) this._visual.setPosition(0, 0, -0.2);
+        if (this._visual?.isValid) this._visual.setPosition(0, -BARREL_AXIS_Y * MODEL_SCALE, BARREL_REST_Z);
         this._recoil = 0; this._trajectoryDirty = true; this.cancel();
+        if (this._bounds) this._updateAim();
     }
     private _mouseAim(e: EventMouse) {
         if (!this.canAim()) return;
@@ -107,17 +123,21 @@ export class CannonController extends Component {
         const v = launchVelocity(this._muzzle, this._aim, t); return new Vec3(v.x, v.y, v.z);
     }
     private _updateAim() {
-        if (!this._barrel) return;
+        if (!this._barrel?.isValid || !this._yaw?.isValid) return;
         this._trajectoryDirty = true;
+        const yawOrigin = this._yaw.worldPosition;
+        this._yaw.lookAt(new Vec3(this._aim.x, yawOrigin.y, this._aim.z));
         const origin = this._barrel.worldPosition;
+        const muzzleLength = MUZZLE_LENGTH - this._recoil * 1.5;
         const aimDirection = Vec3.subtract(new Vec3(), this._aim, origin).normalize();
-        this._muzzle.set(origin).add(aimDirection.multiplyScalar(MUZZLE_LENGTH));
+        this._muzzle.set(origin).add(aimDirection.multiplyScalar(muzzleLength));
         // The ballistic elevation changes the muzzle direction; keep the shot origin on the visible barrel.
         for (let i = 0; i < 2; i++) {
             const v = this._velocity();
             this._barrel.lookAt(Vec3.add(new Vec3(), origin, v));
-            this._muzzle.set(origin).add(v.normalize().multiplyScalar(MUZZLE_LENGTH));
+            this._muzzle.set(origin).add(v.normalize().multiplyScalar(muzzleLength));
         }
+        this._flash?.setPosition(0, 0, -muzzleLength);
     }
     update(dt: number) {
         if (!this._bounds || this.paused) return;
@@ -126,7 +146,11 @@ export class CannonController extends Component {
             this._time += dt; const power = Math.min(1, 0.55 + this._time * 0.42);
             if (power !== this._charge) { this._charge = power; this.ui.setPower(this._charge); this._updateAim(); }
         }
-        if (this._recoil > 0) { this._recoil = Math.max(0, this._recoil - dt); this._visual?.setPosition(0, 0, -0.2 + this._recoil * 1.5); }
+        if (this._recoil > 0) {
+            this._recoil = Math.max(0, this._recoil - dt);
+            this._visual.setPosition(0, -BARREL_AXIS_Y * MODEL_SCALE, BARREL_REST_Z + this._recoil * 1.5);
+            this._updateAim();
+        }
         if (this._flash) { const size = Math.max(0, (this._recoil - 0.08) / 0.14); this._flash.setScale(size * 0.7, size * 0.7, size); if (size <= 0) { this._flash.destroy(); this._flash = null; } }
         const visible = this.canFire();
         const visibilityChanged = visible !== this._wasVisible;

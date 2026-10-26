@@ -60,6 +60,7 @@ node tools/test-game-presentation.cjs '<当前 Pink 返回的预览 URL>' './tem
 node tools/test-game-camera.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-performance.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 node tools/test-game-rapid-fire.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
+node tools/test-game-mount.cjs '<当前 Pink 返回的预览 URL>' './temp/codex-cannon/node_modules/playwright'
 ```
 
-回归覆盖暂停/继续、真实鼠标瞄准和开炮、单发扣弹、碰撞与连爆、通关、下一关、重试、最后一发失败，以及横竖屏切换。表现回归额外检查炮口后方镜头、瞄准时镜头稳定、直接命中最后一个目标时的无弹窗展示，以及展示暂停和延迟结算。视角回归覆盖右键环视、中键平移、滚轮缩放、V/菜单回正、暂停与屏幕旋转，以及真实双指操作和开炮的互斥。连续射击回归覆盖多弹并行与独立瞄准、暂停全部炮弹、命中时继续蓄力、重试清空在途炮弹，以及最后一枚炮弹结束后的胜负结算。验证截图和结果保存在 `temp/codex-cannon/`，不进入版本库。
+回归覆盖暂停/继续、真实鼠标瞄准和开炮、单发扣弹、碰撞与连爆、通关、下一关、重试、最后一发失败，以及横竖屏切换。表现回归额外检查炮口后方镜头、瞄准时镜头稳定、直接命中最后一个目标时的无弹窗展示，以及展示暂停和延迟结算。视角回归覆盖右键环视、中键平移、滚轮缩放、V/菜单回正、暂停与屏幕旋转，以及真实双指操作和开炮的互斥。连续射击回归覆盖多弹并行与独立瞄准、暂停全部炮弹、命中时继续蓄力、重试清空在途炮弹，以及最后一枚炮弹结束后的胜负结算。炮架回归从 GLB 几何提取横轴与炮口位置，检查转向、俯仰、后坐和复位时的连接，并确认炮弹与火光从可见炮口发出。验证截图和结果保存在 `temp/codex-cannon/`，不进入版本库。
