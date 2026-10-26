@@ -211,7 +211,8 @@ export class GameManager extends Component {
         };
         add('flash', '#FFF0AD', 1.7, 0.28, new Vec3());
         add('ring', '#FFC069', 1, 0.7, new Vec3());
-        for (let i = 0; i < 4; i++) add('smoke', i % 2 ? '#7B7770' : '#AAA18C', 0.4 + i * 0.1, 1.8 + i * 0.2, new Vec3((Math.random() - 0.5) * 1.7, 0.8 + i * 0.25, (Math.random() - 0.5) * 1.7));
+        // A brief, local puff leaves the target and tumbling barrels visible.
+        for (let i = 0; i < 2; i++) add('smoke', i % 2 ? '#7B7770' : '#AAA18C', 0.24 + i * 0.06, 0.8 + i * 0.15, new Vec3((Math.random() - 0.5) * 0.5, 0.35 + i * 0.15, (Math.random() - 0.5) * 0.5));
     }
     private _effectNode(key: string, kind: 'box' | 'sphere' | 'ring', color: string, luminous: boolean): Node {
         const node = this._effectPool.get(key)?.pop() || shape(this._decor, key, kind, color, Vec3.ZERO, Vec3.ONE, luminous);
@@ -239,7 +240,7 @@ export class GameManager extends Component {
             } else {
                 p.node.setWorldPosition(Vec3.scaleAndAdd(this._particlePosition, p.node.worldPosition, p.velocity, dt));
                 const t = p.age / p.life;
-                const scale = p.kind === 'flash' ? p.size * (1 + t) * (1 - t) : p.kind === 'ring' ? 0.5 + t * 5 : p.size * (1 + t * 3) * Math.min(1, (1 - t) * 4);
+                const scale = p.kind === 'flash' ? p.size * (1 + t) * (1 - t) : p.kind === 'ring' ? 0.5 + t * 5 : p.size * (1 + t * 1.4) * Math.min(1, (1 - t) * 3);
                 p.node.setScale(scale, p.kind === 'ring' ? Math.max(0.03, (1 - t) * 0.4) : scale, scale);
             }
         }
