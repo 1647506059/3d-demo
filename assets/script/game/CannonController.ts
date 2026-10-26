@@ -34,13 +34,15 @@ export class CannonController extends Component {
     private _reticleFrames = 0;
     paused = false;
     get muzzlePosition(): Readonly<Vec3> { return this._muzzle; }
+    get mountPosition(): Readonly<Vec3> { return this._barrel.worldPosition; }
 
     async setup(camera: Camera, ui: GameUI) {
         this.camera = camera; this.ui = ui;
-        this._barrel = new Node('CannonAim'); this._barrel.parent = this.node; this._barrel.setPosition(0, 0.95, 0);
-        const base = await MeshLoader.instantiate('CannonBottom', this.node); base.setScale(8, 8, 8); base.setPosition(0, 0.55, -0.35); paint(base, '#344D62');
+        this._barrel = new Node('CannonAim'); this._barrel.parent = this.node; this._barrel.setPosition(0, 1.361, 0);
+        // The imported stand is centered vertically but its depth starts at the rear edge.
+        const base = await MeshLoader.instantiate('CannonBottom', this.node); base.setScale(8, 8, 8); base.setPosition(0, 0.961, -0.519); paint(base, '#344D62');
         this._visual = await MeshLoader.instantiate('CannonBody', this._barrel); this._visual.setScale(8, 8, 8); this._visual.setPosition(0, 0, -0.2); paint(this._visual, '#FFB74E');
-        shape(this.node, 'CannonPlinth', 'cylinder', '#294958', new Vec3(0, 0.1, 0), new Vec3(2.8, 0.25, 2.8));
+        shape(this.node, 'CannonPlinth', 'cylinder', '#294958', new Vec3(0, 0.125, 0), new Vec3(2.8, 0.25, 2.8));
         for (let i = 0; i < 22; i++) { const dot = shape(this.node.scene!, 'TrajectoryDot', 'sphere', i === 21 ? '#FFBD59' : '#BCE8DD', new Vec3(), new Vec3(0.07, 0.07, 0.07)); this._dots.push(dot); }
         ui.onAimStart = e => { if (!this.canAim() || !this.canFire() || this.paused || !ui.isGameplayScreenPoint(e.getLocationX(), e.getLocationY())) return; this.aimAtScreen(e.getLocationX(), e.getLocationY()); this.beginCharge(); };
         ui.onAimMove = e => { if (this.canAim() && this._charging && ui.isGameplayScreenPoint(e.getLocationX(), e.getLocationY())) this.aimAtScreen(e.getLocationX(), e.getLocationY()); };
@@ -51,7 +53,7 @@ export class CannonController extends Component {
     configure(bounds: LevelBounds) {
         this.reset(); this._bounds = bounds;
         const centerX = (bounds.min.x + bounds.max.x) / 2;
-        this.node.setPosition(centerX + 2.6, 0, bounds.min.z - 5.3);
+        this.node.setPosition(centerX, 0, bounds.min.z - 7.5);
         this._aim.set(centerX, Math.max(1.2, bounds.min.y + (bounds.max.y - bounds.min.y) * 0.45), bounds.min.z + 0.2);
         this._updateAim();
     }

@@ -79,6 +79,30 @@ const { chromium } = require(process.argv[3] ? path.resolve(process.argv[3]) : '
         const timing = await page.evaluate(() => window.presentationProbe);
         assert.ok(timing.elapsed >= 4); assert.ok(timing.quiet >= 2.8); assert.equal(timing.effects, 0);
         await page.screenshot({ path: path.join(output, 'delayed-result.png') });
+        // Cover both straight stacks and the two rotated walls from level 4.
+        for (const level of [1, 2, 4]) {
+            const layout = await page.evaluate(async level => {
+                const g = cc.director.getScene().getChildByName('Main').getComponent('GameManager');
+                await g.load(level);
+                const bounds = g._loaded.bounds, cannon = g._cannon.node.worldPosition;
+                const ground = g._decor.getChildByName('Ground'), pad = g._cannon.node.getChildByName('CannonPlinth');
+                const surface = ground.worldPosition.y + ground.scale.y / 2;
+                const front = ground.worldPosition.z - ground.scale.z / 2;
+                const outliers = g._targets.filter(target => {
+                    const box = target.node.getComponent('cc.BoxCollider').worldBounds;
+                    return ['x', 'y', 'z'].some(axis => box.center[axis] - box.halfExtents[axis] < bounds.min[axis] - 0.08 || box.center[axis] + box.halfExtents[axis] > bounds.max[axis] + 0.08);
+                }).length;
+                return { centerOffset: cannon.x - (bounds.min.x + bounds.max.x) / 2, clearance: bounds.min.z - cannon.z,
+                    padFrontMargin: cannon.z - pad.scale.z / 2 - front,
+                    groundGap: pad.worldPosition.y - pad.scale.y / 2 - surface, outliers };
+            }, level);
+            assert.ok(Math.abs(layout.centerOffset) < 1e-5, `level ${level}: launcher centered on the targets`);
+            assert.ok(layout.clearance > 5, `level ${level}: clear firing lane`);
+            assert.ok(layout.padFrontMargin > 0.5, `level ${level}: launcher stays inside the front edge`);
+            assert.ok(Math.abs(layout.groundGap) < 1e-5, `level ${level}: plinth rests on the ground`);
+            assert.equal(layout.outliers, 0, `level ${level}: bounds contain the actual rotated target colliders`);
+        }
+        console.log('PASS: launch area is centered, grounded and inside the arena; bounds contain straight and rotated targets');
         assert.deepEqual(errors, []);
         await fs.writeFile(path.join(output, 'presentation-verification.json'), JSON.stringify({ passed: true, landscape, portrait, early, timing, errors }, null, 2));
         console.log('PASS: direct final hit shows tumbling barrel and explosion without a modal; paused time is excluded; results wait for all effects', timing);

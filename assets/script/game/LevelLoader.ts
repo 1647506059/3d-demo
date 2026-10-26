@@ -1,5 +1,5 @@
-import { JsonAsset, Node, resources, Vec3 } from 'cc';
-import { LevelConfig, StageConfig } from './LevelData';
+import { JsonAsset, Mat4, Node, resources, Vec3 } from 'cc';
+import { LevelConfig, quatFromJson, StageConfig, vec3FromJson } from './LevelData';
 import { ObjectTypeRegistry } from './ObjectTypeRegistry';
 import { TableBuilder, TableInfo } from './TableBuilder';
 import { LevelObjectBuilder } from './LevelObjectBuilder';
@@ -79,26 +79,30 @@ export class LevelLoader {
             max.z = Math.max(max.z, z);
         };
 
-        const tableById = new Map(stage.tables.map((t) => [t.id, t]));
+        const tableTransforms = new Map<number, Mat4>();
+        const point = new Vec3();
+        const expandLocal = (matrix: Mat4, x: number, y: number, z: number) => {
+            Vec3.transformMat4(point, point.set(x, y, z), matrix);
+            expand(point.x, point.y, point.z);
+        };
 
         for (const t of stage.tables) {
+            const matrix = Mat4.fromRTS(new Mat4(), quatFromJson(t.rot), vec3FromJson(t.pos), vec3FromJson(t.scl));
+            tableTransforms.set(t.id, matrix);
             const halfX = Math.max(t.dim.x, 1) * 0.5;
             const halfZ = Math.max(Math.abs(t.dim.z), 1) * 0.5;
             const poleH = Math.max(t.dim.y, 0.5);
-            expand(t.pos.x - halfX, t.pos.y - poleH, t.pos.z - halfZ);
-            expand(t.pos.x + halfX, t.pos.y, t.pos.z + halfZ);
+            expandLocal(matrix, 0, -poleH, 0);
+            for (const x of [-halfX, halfX]) for (const z of [-halfZ, halfZ]) expandLocal(matrix, x, 0, z);
         }
 
         for (const o of stage.objects) {
-            const table = tableById.get(o.tableId);
-            const baseX = table?.pos.x ?? 0;
-            const baseY = table?.pos.y ?? 0;
-            const baseZ = table?.pos.z ?? 0;
-            const hx = o.size.x * 0.5;
-            const hy = o.size.y * 0.5;
-            const hz = o.size.z * 0.5;
-            expand(baseX + o.pos.x - hx, baseY + o.pos.y - hy, baseZ + o.pos.z - hz);
-            expand(baseX + o.pos.x + hx, baseY + o.pos.y + hy, baseZ + o.pos.z + hz);
+            const table = tableTransforms.get(o.tableId);
+            if (!table) continue;
+            const matrix = Mat4.fromRTS(new Mat4(), quatFromJson(o.rot), vec3FromJson(o.pos), vec3FromJson(o.size));
+            Mat4.multiply(matrix, table, matrix);
+            // Objects are local to a rotated/scaled platform, not translated world-space boxes.
+            for (const x of [-0.5, 0.5]) for (const y of [-0.5, 0.5]) for (const z of [-0.5, 0.5]) expandLocal(matrix, x, y, z);
         }
 
         if (!isFinite(min.x)) {

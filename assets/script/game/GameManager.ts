@@ -110,6 +110,7 @@ export class GameManager extends Component {
         try {
             this._loaded = await new LevelLoader(this._registry).loadLevel(level, this._root, stage);
             if (revision !== this._revision || !isValid(this.node)) return;
+            this._cannon.configure(this._loaded.bounds);
             this._makeArena();
             this._mechanics = new StageMechanics(this._loaded, stage, this._root);
             for (const item of this._loaded.objects) {
@@ -120,22 +121,26 @@ export class GameManager extends Component {
             }
             this.total = this._targets.length;
             this.budget = ammoForStage(this.total, this._loaded.config.moveCount); this.ammo = this.budget; this._levelBudget += this.budget;
-            this._cannon.configure(this._loaded.bounds); this._frame();
+            this._frame();
             this.phase = 'aiming'; this._ui.toast(stage === 0 ? '瞄准下层 · 引爆连锁' : '新的目标已就位'); this._render();
         } catch (error) { this._fail(error); }
     }
 
     private _makeArena() {
         const b = this._loaded!.bounds;
-        const x = (b.min.x + b.max.x) / 2, z = (b.min.z + b.max.z) / 2;
-        const width = Math.max(12, b.max.x - b.min.x + 7), depth = Math.max(15, b.max.z - b.min.z + 13);
-        const ground = shape(this._decor, 'Ground', 'box', '#3D6972', new Vec3(x, -0.35, z - 3), new Vec3(width, 0.6, depth));
+        const cannon = this._cannon.node.worldPosition;
+        const x = (b.min.x + b.max.x) / 2;
+        const front = cannon.z - 2.2, back = Math.max(b.max.z + 3, cannon.z + 12);
+        const z = (front + back) / 2;
+        const width = Math.max(12, b.max.x - b.min.x + 7), depth = back - front;
+        const ground = shape(this._decor, 'Ground', 'box', '#3D6972', new Vec3(x, -0.3, z), new Vec3(width, 0.6, depth));
         const body = ground.addComponent(RigidBody); body.type = RigidBody.Type.STATIC; ground.addComponent(BoxCollider);
-        shape(this._decor, 'IslandBase', 'box', '#243F50', new Vec3(x, -0.85, z - 3), new Vec3(width + 0.4, 0.5, depth + 0.4));
-        for (const side of [-1, 1]) for (let i = 0; i < 8; i++) shape(this._decor, 'RangeMarker', 'box', '#B6C7A7', new Vec3(x + side * (width / 2 - 0.8), 0.01, z - 8 + i * 1.6), new Vec3(0.14, 0.025, 0.65));
+        shape(this._decor, 'IslandBase', 'box', '#243F50', new Vec3(x, -0.85, z), new Vec3(width + 0.4, 0.5, depth + 0.4));
+        for (const side of [-1, 1]) for (let i = 0; i < 8; i++) shape(this._decor, 'RangeMarker', 'box', '#B6C7A7', new Vec3(x + side * (width / 2 - 0.8), 0.0125, front + 0.8 + i * (depth - 1.6) / 7), new Vec3(0.14, 0.025, 0.65));
+        shape(this._decor, 'FiringLine', 'box', '#B6C7A7', new Vec3(cannon.x, 0.0125, cannon.z + 1.9), new Vec3(4.4, 0.025, 0.12));
         for (let i = 0; i < 6; i++) {
             const h = 0.5 + (i % 3) * 0.35;
-            shape(this._decor, 'BackdropCrate', 'box', i % 2 ? '#527C7C' : '#466772', new Vec3(x - width / 2 + i * width / 5, h / 2 - 0.05, z + depth / 2 - 4), new Vec3(1.1, h, 0.9));
+            shape(this._decor, 'BackdropCrate', 'box', i % 2 ? '#527C7C' : '#466772', new Vec3(x - width / 2 + 1 + i * (width - 2) / 5, h / 2, back - 0.9), new Vec3(1.1, h, 0.9));
         }
     }
 
@@ -153,7 +158,7 @@ export class GameManager extends Component {
         const targetDistance = Math.hypot(center.x - cannon.x, center.z - cannon.z);
         const behind = Math.max(aspect < 1 ? 5 : 4, range - targetDistance);
         // A low shoulder camera sits behind the cannon, looking over its muzzle at the target.
-        this._cameraPosition.set(cannon.x - forward.x * behind + right.x * 0.85, cannon.y + 2.35, cannon.z - forward.z * behind + right.z * 0.85);
+        this._cameraPosition.set(cannon.x - forward.x * behind + right.x * 0.85, this._cannon.mountPosition.y + 1.4, cannon.z - forward.z * behind + right.z * 0.85);
         this._playerCamera.setHome(this._cameraPosition, center, preserveView);
         this._camera.near = 0.1;
         this._camera.far = Math.max(100, range * 3);
